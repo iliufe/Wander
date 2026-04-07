@@ -1,0 +1,2 @@
+conda activate C:\Users\Roxy\Desktop\project\ent_app\.conda\envs\entapp_node
+npm run dev
