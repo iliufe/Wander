@@ -23,7 +23,9 @@ export function StopSheet({ stop, getCategoryLabel, onClose }: StopSheetProps) {
         <div className="sheet-card">
           <div className="sheet-head">
             <div>
-              <span className="eyebrow">{isLivePoi ? copy.stopSheet.liveDigest : copy.stopSheet.verified}</span>
+              <span className="eyebrow">
+                {isLivePoi ? copy.stopSheet.liveDigest : copy.stopSheet.verified}
+              </span>
               <h3>{stop.name}</h3>
               <p className="ugc-brief">
                 {stop.address} · {stop.hours} · {copy.stopSheet.rating} {stop.rating}

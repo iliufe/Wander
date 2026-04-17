@@ -11,6 +11,8 @@ export type CategoryId =
   | "riverside"
   | "market";
 
+export type AppLanguage = "zh" | "en";
+
 export type AppClusterId = "jingan" | "xuhui" | "huangpu";
 export type ClusterId = AppClusterId | "live";
 export type RouteStyle = "balanced" | "scenic" | "efficient";
@@ -119,6 +121,8 @@ export interface ParsedRequest {
   timeMinutes: number;
   timeLabel: string;
   categories: CategoryId[];
+  searchTerms: string[];
+  requiredTermsByCategory: Partial<Record<CategoryId, string[]>>;
   mood: "balanced" | "scenic" | "efficient" | "slow";
   scenario: ScenarioState;
   templateId: string | null;
@@ -159,6 +163,7 @@ export interface LiveDataState {
 }
 
 export interface GenerationOptions {
+  language?: AppLanguage;
   template?: SharedRoute | null;
   scenario?: ScenarioState;
   timeOverrideMinutes?: number | null;

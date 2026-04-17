@@ -17,7 +17,9 @@ export function RoutesPage() {
         <h1>{copy.routes.title}</h1>
         <p>{copy.routes.description}</p>
         <div className="meta-row page-hero-meta">
-          <span className="meta-pill">{routes.length} {language === "zh" ? "条方案" : "options"}</span>
+          <span className="meta-pill">
+            {routes.length} {language === "zh" ? "条方案" : "options"}
+          </span>
           <span className="meta-pill">{parsed.timeLabel}</span>
           <span className="meta-pill">{location.label}</span>
         </div>
@@ -47,7 +49,7 @@ export function RoutesPage() {
                 selected={route.id === selectedRouteId}
                 onSelect={setSelectedRouteId}
                 getCategoryLabel={(category) => getLocalizedCategoryLabel(category, language)}
-                formatHours={formatHours}
+                formatHours={(minutes) => formatHours(minutes, language)}
               />
             ))}
           </div>

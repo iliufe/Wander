@@ -1,4 +1,5 @@
 import { cityDriftData } from "../data";
+import { scoreVenueSearchTerms } from "../intent";
 import type { CategoryId, Coordinates, Venue } from "../types";
 
 type OverpassElement = {
@@ -67,6 +68,7 @@ interface SearchNearbyVenuePoolOptions {
   coordinates: Coordinates;
   categories: CategoryId[];
   radiusMeters: number;
+  searchTerms?: string[];
 }
 
 const nominatimBaseUrl = "https://nominatim.openstreetmap.org";
@@ -205,7 +207,12 @@ export function reverseGeocodeFromOpenMap(coordinates: Coordinates): Promise<Rev
 export async function searchNearbyVenuePool(
   options: SearchNearbyVenuePoolOptions
 ): Promise<NearbyVenueSearchResult> {
-  const query = buildOverpassQuery(options.coordinates, options.radiusMeters, options.categories);
+  const query = buildOverpassQuery(
+    options.coordinates,
+    options.radiusMeters,
+    options.categories,
+    options.searchTerms ?? []
+  );
   const response = await fetch(overpassBaseUrl, {
     method: "POST",
     headers: {
@@ -237,11 +244,20 @@ export async function searchNearbyVenuePool(
   });
 
   const venues = [...uniqueVenues.values()]
+    .map((venue) => ({
+      venue,
+      keywordScore: scoreVenueSearchTerms(venue, options.searchTerms ?? []),
+    }))
     .sort((left, right) => {
-      const leftDistance = left.distanceFromStartMeters ?? Number.POSITIVE_INFINITY;
-      const rightDistance = right.distanceFromStartMeters ?? Number.POSITIVE_INFINITY;
-      return leftDistance - rightDistance || right.rating - left.rating;
+      const leftDistance = left.venue.distanceFromStartMeters ?? Number.POSITIVE_INFINITY;
+      const rightDistance = right.venue.distanceFromStartMeters ?? Number.POSITIVE_INFINITY;
+      return (
+        right.keywordScore - left.keywordScore ||
+        leftDistance - rightDistance ||
+        right.venue.rating - left.venue.rating
+      );
     })
+    .map((item) => item.venue)
     .slice(0, 36);
 
   return {
@@ -294,17 +310,109 @@ export async function fetchRouteFromOsrm(
 function buildOverpassQuery(
   coordinates: Coordinates,
   radiusMeters: number,
-  categories: CategoryId[]
+  categories: CategoryId[],
+  searchTerms: string[]
 ) {
-  const fragments = dedupe(categories).flatMap((category) => buildCategoryFragments(category, coordinates, radiusMeters));
+  const fragments = dedupe(categories).flatMap((category) =>
+    buildCategoryFragments(category, coordinates, radiusMeters)
+  );
+  const keywordFragments = dedupe(searchTerms).flatMap((term) =>
+    buildKeywordFragments(term, coordinates, radiusMeters)
+  );
 
   return `
 [out:json][timeout:20];
 (
-${fragments.join("\n")}
+${[...fragments, ...keywordFragments].join("\n")}
 );
 out center 80;
 `;
+}
+
+function buildKeywordFragments(
+  term: string,
+  coordinates: Coordinates,
+  radiusMeters: number
+) {
+  const around = `(around:${radiusMeters},${coordinates.latitude},${coordinates.longitude})`;
+  const repeat = (selector: string) => [
+    `  node${around}${selector};`,
+    `  way${around}${selector};`,
+    `  relation${around}${selector};`,
+  ];
+  const normalizedTerm = term.trim().toLowerCase();
+
+  if (["火锅", "hotpot", "串串", "冒菜"].includes(normalizedTerm)) {
+    return [
+      ...repeat(`[amenity~"restaurant|fast_food"][cuisine~"hotpot|sichuan|chinese",i]`),
+      ...repeat(`[name~"火锅|Hotpot|串串|冒菜|麻辣锅",i]`),
+    ];
+  }
+
+  if (["公园", "park", "garden", "绿地"].includes(normalizedTerm)) {
+    return [
+      ...repeat(`[leisure~"park|garden"]`),
+      ...repeat(`[landuse~"grass|recreation_ground"]`),
+      ...repeat(`[name~"公园|Park|Garden|绿地",i]`),
+    ];
+  }
+
+  if (["散步", "walk", "stroll", "步道", "city walk"].includes(normalizedTerm)) {
+    return [
+      ...repeat(`[highway~"pedestrian|footway"]`),
+      ...repeat(`[leisure~"park|garden"]`),
+      ...repeat(`[name~"步道|walk|trail|绿道",i]`),
+    ];
+  }
+
+  if (["咖啡", "coffee", "cafe"].includes(normalizedTerm)) {
+    return [
+      ...repeat(`[amenity~"cafe|ice_cream"]`),
+      ...repeat(`[name~"咖啡|coffee|cafe",i]`),
+    ];
+  }
+
+  if (["书店", "bookstore", "bookshop", "reading"].includes(normalizedTerm)) {
+    return [
+      ...repeat(`[shop~"books|stationery"]`),
+      ...repeat(`[name~"书店|bookstore|bookshop",i]`),
+    ];
+  }
+
+  if (["展览", "gallery", "museum", "exhibition"].includes(normalizedTerm)) {
+    return [
+      ...repeat(`[tourism~"museum|gallery"]`),
+      ...repeat(`[amenity~"arts_centre|exhibition_centre"]`),
+      ...repeat(`[name~"美术馆|博物馆|gallery|museum|exhibition",i]`),
+    ];
+  }
+
+  if (["甜品", "dessert", "cake", "bakery"].includes(normalizedTerm)) {
+    return [
+      ...repeat(`[shop~"bakery|pastry|confectionery"]`),
+      ...repeat(`[amenity="ice_cream"]`),
+      ...repeat(`[name~"甜品|蛋糕|dessert|bakery|cake",i]`),
+    ];
+  }
+
+  if (["超市", "便利店", "grocery", "supermarket"].includes(normalizedTerm)) {
+    return [
+      ...repeat(`[shop~"supermarket|convenience|greengrocer|grocery|deli"]`),
+      ...repeat(`[name~"超市|便利店|market|mart|便利",i]`),
+    ];
+  }
+
+  if (["江边", "河边", "湖边", "riverside", "waterfront"].includes(normalizedTerm)) {
+    return [
+      ...repeat(`[tourism="viewpoint"]`),
+      ...repeat(`[natural="water"]`),
+      ...repeat(`[waterway~"river|riverbank|canal"]`),
+      ...repeat(`[name~"江|河|湖|滨|waterfront|riverside",i]`),
+    ];
+  }
+
+  const escaped = escapeOverpassRegex(term);
+  return escaped ? repeat(`[name~"${escaped}",i]`) : [];
 }
 
 function buildCategoryFragments(category: CategoryId, coordinates: Coordinates, radiusMeters: number) {
@@ -592,6 +700,10 @@ function formatDistance(distanceMetersValue: number) {
   }
 
   return `${(distanceMetersValue / 1000).toFixed(1)} 公里`;
+}
+
+function escapeOverpassRegex(value: string) {
+  return value.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function dedupe<T>(items: T[]) {

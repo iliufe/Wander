@@ -8,8 +8,15 @@ import {
 } from "react";
 import { cityDriftData } from "./data";
 import { buildPromptFromSharedRoute, generateRoutes, parseRequest } from "./engine";
+import { useLanguage } from "./i18n";
 import { buildLocalFallbackVenuePool, findNearestOfflineLandmark } from "./local-fallback-packs";
 import { reverseGeocodeFromOpenMap, searchNearbyVenuePool } from "./services/openmap";
+import {
+  buildLiveDataNote,
+  buildLocalizedLiveClusterAccent,
+  buildLocalizedLiveClusterLabel,
+  formatLocalizedGenerationLabel,
+} from "./wander-copy";
 import type {
   AppClusterId,
   CategoryId,
@@ -80,6 +87,15 @@ type ReverseGeocodeSnapshot = {
 
 const WanderContext = createContext<WanderContextValue | null>(null);
 
+const keepLegacyHelpersReferenced = [
+  liveClusterAccentFallback,
+  buildLiveClusterLabel,
+  buildLiveClusterAccent,
+  formatGenerationLabel,
+];
+
+void keepLegacyHelpersReferenced;
+
 const clusterLocationMeta: Record<
   AppClusterId,
   {
@@ -115,9 +131,10 @@ function readStoredState() {
 }
 
 export function WanderProvider({ children }: { children: ReactNode }) {
+  const { language } = useLanguage();
   const stored = readStoredState();
   const defaultPrompt = stored?.prompt || cityDriftData.defaults.prompt;
-  const parsedDefault = parseRequest(defaultPrompt);
+  const parsedDefault = parseRequest(defaultPrompt, { language });
   const defaultTimeSelection = selectionFromMinutes(parsedDefault.timeMinutes);
   const openDataEnabled = true;
 
@@ -160,10 +177,11 @@ export function WanderProvider({ children }: { children: ReactNode }) {
     location.permission === "granted" &&
     location.latitude != null &&
     location.longitude != null;
-  const liveClusterLabel = liveMode ? buildLiveClusterLabel(location) : null;
-  const liveClusterAccent = liveMode ? buildLiveClusterAccent(liveDataState) : null;
+  const liveClusterLabel = liveMode ? buildLocalizedLiveClusterLabel(location, language) : null;
+  const liveClusterAccent = liveMode ? buildLocalizedLiveClusterAccent(liveDataState, language) : null;
 
   const { parsed, routes } = generateRoutes(activePrompt, {
+    language,
     template: activeTemplate,
     scenario,
     timeOverrideMinutes: activeTimeBudgetMinutes,
@@ -201,6 +219,27 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       current && routes.some((route) => route.id === current) ? current : null
     );
   }, [routes]);
+
+  useEffect(() => {
+    const nextNote = buildLiveDataNote(
+      liveDataState.status,
+      liveDataState.source,
+      language,
+      liveDataState.radiusMeters,
+      liveDataState.poiCount
+    );
+
+    if (liveDataState.note !== nextNote) {
+      setLiveDataState((current) => ({ ...current, note: nextNote }));
+    }
+  }, [
+    language,
+    liveDataState.note,
+    liveDataState.poiCount,
+    liveDataState.radiusMeters,
+    liveDataState.source,
+    liveDataState.status,
+  ]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -246,23 +285,20 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       longitude: location.longitude,
     };
     const parsedForSearch = parseRequest(activePrompt, {
+      language,
       scenario,
       timeOverrideMinutes: activeTimeBudgetMinutes,
       startPointOverride: location.label,
     });
     const searchCategories = buildLiveSearchCategories(parsedForSearch.categories, scenario.weather);
-    const localFallback = buildLocalFallbackVenuePool(searchOrigin, searchCategories);
+    const localFallback = buildLocalFallbackVenuePool(
+      searchOrigin,
+      searchCategories,
+      parsedForSearch.searchTerms
+    );
 
     if (localFallback) {
       setLiveVenuePool(localFallback.venues);
-      setLiveDataState({
-        status: "fallback",
-        source: "demo",
-        note: localFallback.note,
-        radiusMeters: localFallback.radiusMeters,
-        poiCount: localFallback.venues.length,
-      });
-      return;
     }
 
     setLiveDataState((current) => ({
@@ -284,6 +320,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         const result = await searchNearbyVenuePool({
           coordinates: searchOrigin,
           categories: searchCategories,
+          searchTerms: parsedForSearch.searchTerms,
           radiusMeters,
         });
 
@@ -304,16 +341,44 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setLiveVenuePool(bestResult.venues);
+      const mergedVenues = mergeVenuePools(bestResult.venues, localFallback?.venues ?? []);
+
+      if (mergedVenues.length) {
+        setLiveVenuePool(mergedVenues);
+        setLiveDataState({
+          status: bestResult.venues.length ? "live" : localFallback ? "fallback" : "empty",
+          source: bestResult.venues.length ? "open" : localFallback ? "demo" : "open",
+          note: bestResult.note,
+          radiusMeters: bestResult.venues.length
+            ? bestResult.radiusMeters
+            : (localFallback?.radiusMeters ?? bestResult.radiusMeters),
+          poiCount: mergedVenues.length,
+        });
+        return;
+      }
+
+      setLiveVenuePool([]);
       setLiveDataState({
-        status: bestResult.venues.length ? "live" : "empty",
+        status: "empty",
         source: "open",
         note: bestResult.note,
         radiusMeters: bestResult.radiusMeters,
-        poiCount: bestResult.venues.length,
+        poiCount: 0,
       });
     })().catch(() => {
       if (cancelled) {
+        return;
+      }
+
+      if (localFallback) {
+        setLiveVenuePool(localFallback.venues);
+        setLiveDataState({
+          status: "fallback",
+          source: "demo",
+          note: localFallback.note,
+          radiusMeters: localFallback.radiusMeters,
+          poiCount: localFallback.venues.length,
+        });
         return;
       }
 
@@ -333,6 +398,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
   }, [
     activePrompt,
     activeTimeBudgetMinutes,
+    language,
     location.label,
     location.latitude,
     location.longitude,
@@ -351,7 +417,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
   const routeFit = selectedRoute ? `${selectedRoute.fitScore}%` : "--";
   const adjustmentState =
     selectedRoute && selectedRoute.adjustments.length ? "有自动替换建议" : "当前可直接执行";
-  const generationLabel = formatGenerationLabel(lastGeneratedAt, activeTemplateId);
+  const generationLabel = formatLocalizedGenerationLabel(lastGeneratedAt, activeTemplateId, language);
 
   useEffect(() => {
     setLastGeneratedAt(new Date().toISOString());
@@ -492,12 +558,13 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         const effectiveTimeBudget =
           selectedTimeMinutes > 0 ? selectedTimeMinutes : sharedRoute.timeHours * 60;
         const draftParsed = parseRequest(inputPrompt.trim() || cityDriftData.defaults.prompt, {
+          language,
           scenario,
           timeOverrideMinutes: effectiveTimeBudget,
           startPointOverride: locationReady ? location.label : null,
           preferredClusterId: location.clusterId,
         });
-        const nextPrompt = buildPromptFromSharedRoute(sharedRoute, draftParsed);
+        const nextPrompt = buildPromptFromSharedRoute(sharedRoute, draftParsed, language);
         setSelectedRouteId(null);
         setActiveTemplateId(routeId);
         setTimeSelection(selectionFromMinutes(effectiveTimeBudget));
@@ -520,6 +587,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       canGenerate,
       generationLabel,
       inputPrompt,
+      language,
       liveDataState,
       location,
       locationReady,
@@ -780,6 +848,39 @@ function buildLiveClusterAccent(liveDataState: LiveDataState) {
   }
 
   return liveClusterAccentFallback;
+}
+
+function mergeVenuePools(primary: Venue[], backup: Venue[]) {
+  const merged = new Map<string, Venue>();
+  const signatures = new Set<string>();
+
+  const appendVenue = (venue: Venue) => {
+    if (merged.has(venue.id)) {
+      return;
+    }
+
+    const signature = [
+      normalizeVenueToken(venue.name),
+      venue.latitude.toFixed(4),
+      venue.longitude.toFixed(4),
+    ].join("|");
+
+    if (signatures.has(signature)) {
+      return;
+    }
+
+    merged.set(venue.id, venue);
+    signatures.add(signature);
+  };
+
+  primary.forEach(appendVenue);
+  backup.forEach(appendVenue);
+
+  return [...merged.values()];
+}
+
+function normalizeVenueToken(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
 }
 
 function formatRadius(radiusMeters: number) {
