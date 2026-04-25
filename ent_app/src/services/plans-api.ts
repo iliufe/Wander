@@ -80,7 +80,7 @@ export async function describeLocationWithApi(
   });
 
   if (!response.ok) {
-    throw new Error("Location reverse API request failed");
+    throw new Error(await readApiError(response, "Location reverse API request failed"));
   }
 
   const payload = (await response.json()) as ReverseLocationResponse;
@@ -112,7 +112,7 @@ export async function generatePlansWithApi(
   });
 
   if (!response.ok) {
-    throw new Error("Plan generation API request failed");
+    throw new Error(await readApiError(response, "Plan generation API request failed"));
   }
 
   const payload = (await response.json()) as GeneratePlansResponse;
@@ -150,7 +150,7 @@ export async function searchStartPlacesWithApi(
   });
 
   if (!response.ok) {
-    throw new Error("Location search API request failed");
+    throw new Error(await readApiError(response, "Location search API request failed"));
   }
 
   const payload = (await response.json()) as StartPlaceSearchResponse;
@@ -159,4 +159,13 @@ export async function searchStartPlacesWithApi(
   }
 
   return payload.places ?? [];
+}
+
+async function readApiError(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { note?: string };
+    return payload.note || `${fallback} (${response.status})`;
+  } catch {
+    return `${fallback} (${response.status})`;
+  }
 }

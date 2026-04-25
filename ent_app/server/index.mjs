@@ -213,6 +213,12 @@ const server = createServer(async (request, response) => {
 
     respondJson(response, 404, { ok: false, note: "Endpoint not found." });
   } catch (error) {
+    console.error("[wander] request failed", {
+      url: request.url,
+      method: request.method,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     respondJson(response, 500, {
       ok: false,
       note: error instanceof Error ? error.message : "Unexpected server error.",
