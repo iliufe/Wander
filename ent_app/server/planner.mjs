@@ -513,20 +513,29 @@ export async function generatePlans({
 }) {
   const amapConfig = getAmapConfig();
   const locationSnapshot = await reverseGeocodeWithAmap(coordinates, amapConfig);
-  const weatherSnapshot = await fetchWeatherWithAmap(locationSnapshot.adcode, amapConfig).catch(
-    () => null
-  );
+  const weatherSnapshot = await withTimeout(
+    fetchWeatherWithAmap(locationSnapshot.adcode, amapConfig),
+    2500,
+    "AMap weather request timed out"
+  ).catch(() => null);
   const effectiveWeather = weather || weatherSnapshot?.weatherMode || "clear";
-  const blueprintPayload = await planBlueprintsWithQwen({
-    prompt,
-    language,
-    timeBudgetMinutes,
-    weather: effectiveWeather,
-    venueStatus,
-    locationLabel: locationSnapshot.nearbyPlaceName || locationLabel,
-    formattedAddress: locationSnapshot.formattedAddress,
-    weatherText: weatherSnapshot?.weatherText || null,
-    qwenConfig,
+  const blueprintPayload = await withTimeout(
+    planBlueprintsWithQwen({
+      prompt,
+      language,
+      timeBudgetMinutes,
+      weather: effectiveWeather,
+      venueStatus,
+      locationLabel: locationSnapshot.nearbyPlaceName || locationLabel,
+      formattedAddress: locationSnapshot.formattedAddress,
+      weatherText: weatherSnapshot?.weatherText || null,
+      qwenConfig,
+    }),
+    Number(process.env.WANDER_QWEN_BLUEPRINT_TIMEOUT_MS || 18000),
+    "Qwen blueprint request timed out"
+  ).catch((error) => {
+    console.warn("[wander] qwen blueprint fallback", error instanceof Error ? error.message : error);
+    return normalizeBlueprintPayload({}, language, prompt, timeBudgetMinutes);
   });
 
   const radiusMeters = buildSearchRadius(timeBudgetMinutes);
@@ -534,82 +543,45 @@ export async function generatePlans({
   const searchCache = new Map();
   const routeKeys = new Set();
 
+  const buildAttempt = (blueprint, routeIndex, variantIndex) =>
+    buildRouteFromBlueprint({
+      blueprint,
+      intent: blueprintPayload.intent,
+      coordinates,
+      radiusMeters,
+      timeBudgetMinutes,
+      weather: effectiveWeather,
+      locationSnapshot,
+      language,
+      searchCache,
+      candidateRegistry,
+      amapConfig,
+      routeIndex,
+      variantIndex,
+    }).catch(() => null);
+
   let routes = [];
-  for (const [routeIndex, blueprint] of blueprintPayload.routeOptions.entries()) {
-    for (let variantIndex = 0; variantIndex < 4; variantIndex += 1) {
-      const route = await buildRouteFromBlueprint({
-        blueprint,
-        intent: blueprintPayload.intent,
-        coordinates,
-        radiusMeters,
-        timeBudgetMinutes,
-        weather: effectiveWeather,
-        locationSnapshot,
-        language,
-        searchCache,
-        candidateRegistry,
-        amapConfig,
-        routeIndex,
-        variantIndex,
-      });
+  const primaryRoutes = await Promise.all(
+    blueprintPayload.routeOptions.map((blueprint, routeIndex) =>
+      buildAttempt(blueprint, routeIndex, routeIndex)
+    )
+  );
 
-      if (!route) {
-        continue;
-      }
-
-      if (!routeCoversRequiredCategories(route, blueprintPayload.intent.categories)) {
-        continue;
-      }
-
-      const routeKey = buildRouteKey(route);
-      if (routeKeys.has(routeKey)) {
-        continue;
-      }
-
-      routeKeys.add(routeKey);
-      routes.push(route);
-      break;
-    }
+  for (const route of primaryRoutes) {
+    addRouteIfUsable(route, routes, routeKeys, blueprintPayload.intent.categories);
   }
 
-  if (routes.length < 3) {
-    for (let variantIndex = 4; variantIndex < 8 && routes.length < 3; variantIndex += 1) {
-      for (const [routeIndex, blueprint] of blueprintPayload.routeOptions.entries()) {
-        const route = await buildRouteFromBlueprint({
-          blueprint,
-          intent: blueprintPayload.intent,
-          coordinates,
-          radiusMeters,
-          timeBudgetMinutes,
-          weather: effectiveWeather,
-          locationSnapshot,
-          language,
-          searchCache,
-          candidateRegistry,
-          amapConfig,
-          routeIndex,
-          variantIndex,
-        });
+  for (let variantIndex = 1; variantIndex < 4 && routes.length < 3; variantIndex += 1) {
+    const fallbackRoutes = await Promise.all(
+      blueprintPayload.routeOptions.map((blueprint, routeIndex) =>
+        buildAttempt(blueprint, routeIndex, variantIndex + routeIndex)
+      )
+    );
 
-        if (!route) {
-          continue;
-        }
-
-        if (!routeCoversRequiredCategories(route, blueprintPayload.intent.categories)) {
-          continue;
-        }
-
-        const routeKey = buildRouteKey(route);
-        if (routeKeys.has(routeKey)) {
-          continue;
-        }
-
-        routeKeys.add(routeKey);
-        routes.push(route);
-
-        if (routes.length >= 3) {
-          break;
-        }
+    for (const route of fallbackRoutes) {
+      addRouteIfUsable(route, routes, routeKeys, blueprintPayload.intent.categories);
+      if (routes.length >= 3) {
+        break;
       }
     }
   }
@@ -618,7 +590,7 @@ export async function generatePlans({
     .sort((left, right) => right.fitScore - left.fitScore)
     .slice(0, 3);
 
-  if (routes.length) {
+  if (routes.length && process.env.WANDER_ENABLE_ROUTE_COPY_AI === "true") {
     routes = await finalizeRouteCopyWithQwen({
       routes,
       language,
@@ -667,6 +639,7 @@ async function planBlueprintsWithQwen({
 }) {
   const response = await fetch(`${qwenConfig.baseUrl}/chat/completions`, {
     method: "POST",
+    signal: AbortSignal.timeout(Number(process.env.WANDER_QWEN_BLUEPRINT_TIMEOUT_MS || 18000)),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${qwenConfig.apiKey}`,
@@ -767,6 +740,7 @@ async function finalizeRouteCopyWithQwen({
 
   const response = await fetch(`${qwenConfig.baseUrl}/chat/completions`, {
     method: "POST",
+    signal: AbortSignal.timeout(Number(process.env.WANDER_QWEN_COPY_TIMEOUT_MS || 6000)),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${qwenConfig.apiKey}`,
@@ -1058,7 +1032,7 @@ async function findCandidatesForStop({
     ...stopSignal.requiredTerms,
     ...stopSignal.searchTerms,
     ...(categoryFallbackTerms[stopSignal.category] ?? []),
-  ]).slice(0, 5);
+  ]).slice(0, 3);
 
   const results = [];
   const nearbyBatches = await Promise.all(
@@ -1132,7 +1106,7 @@ async function searchWithCache({
         coordinates,
         radiusMeters,
         city,
-        pageSize: 12,
+        pageSize: 8,
       },
       amapConfig
     ).catch(() => []);
@@ -1168,14 +1142,15 @@ async function attachRouteLegs(stops, startCoordinates, startLabel, language, am
 
   for (const stop of stops) {
     const destination = { latitude: stop.latitude, longitude: stop.longitude };
-    const [walkingLeg, drivingLeg] = await Promise.all([
-      fetchWalkingRouteFromAmap(previous, destination, amapConfig).catch(() =>
-        buildFallbackLeg(previous, destination)
-      ),
-      fetchDrivingRouteFromAmap(previous, destination, amapConfig).catch(() =>
-        buildFallbackDrivingLeg(previous, destination)
-      ),
-    ]);
+    const walkingLeg = await fetchWalkingRouteFromAmap(previous, destination, amapConfig).catch(() =>
+      buildFallbackLeg(previous, destination)
+    );
+    const drivingLeg =
+      process.env.WANDER_ENABLE_AMAP_DRIVING === "true"
+        ? await fetchDrivingRouteFromAmap(previous, destination, amapConfig).catch(() =>
+            buildFallbackDrivingLeg(previous, destination)
+          )
+        : buildFallbackDrivingLeg(previous, destination);
     const ridingLeg = estimateRidingLeg(walkingLeg.distanceMeters, previous, destination);
     const travelModes = buildTravelModes({
       walkingLeg,
@@ -1743,6 +1718,21 @@ function buildFallbackDrivingLeg(origin, destination) {
 
 function buildRouteKey(route) {
   return route.stops.map((stop) => stop.id).join("|");
+}
+
+function addRouteIfUsable(route, routes, routeKeys, requiredCategories) {
+  if (!route || !routeCoversRequiredCategories(route, requiredCategories)) {
+    return false;
+  }
+
+  const routeKey = buildRouteKey(route);
+  if (routeKeys.has(routeKey)) {
+    return false;
+  }
+
+  routeKeys.add(routeKey);
+  routes.push(route);
+  return true;
 }
 
 function routeCoversRequiredCategories(route, requiredCategories) {
@@ -2377,6 +2367,15 @@ function distanceMetersBetween(start, end) {
 
 function dedupe(items) {
   return [...new Set(items)];
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
 function extractHeuristicIntent(prompt, timeBudgetMinutes = 120) {

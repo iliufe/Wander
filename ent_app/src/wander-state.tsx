@@ -338,20 +338,23 @@ export function WanderProvider({ children }: { children: ReactNode }) {
           }
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (controller.signal.aborted) {
           return;
         }
 
         setPlannedIntent(null);
         setPlannedRoutes([]);
+        const errorNote = buildGenerationErrorNote(error, language);
         setLiveDataState({
           status: "error",
           source: "amap",
-          note:
+          /*
             language === "zh"
               ? "真实路线生成失败了，可以稍后再试一次。"
               : "Real route generation failed. Trying again shortly should be more stable.",
+          */
+          note: errorNote,
           radiusMeters: null,
           poiCount: 0,
         });
@@ -852,6 +855,17 @@ function selectionFromMinutes(totalMinutes: number): TimeSelection {
     hours: Math.floor(safeMinutes / 60),
     minutes: safeMinutes % 60,
   };
+}
+
+function buildGenerationErrorNote(error: unknown, language: "zh" | "en") {
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message.trim()
+      : language === "zh"
+        ? "路线生成失败，暂时没有拿到后端错误详情。"
+        : "Route generation failed without a detailed backend error.";
+
+  return language === "zh" ? `路线生成失败：${message}` : `Route generation failed: ${message}`;
 }
 
 function hasGeolocationSupport() {
