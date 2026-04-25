@@ -1,0 +1,13 @@
+
+> wander-prototype@0.0.0 dev
+> node scripts/dev-stack.mjs
+
+
+> wander-prototype@0.0.0 dev:api
+> node server/index.mjs
+
+
+> wander-prototype@0.0.0 dev:web
+> vite
+
+[wander-api] listening on http://localhost:8788

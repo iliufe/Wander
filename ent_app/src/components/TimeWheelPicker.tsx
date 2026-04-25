@@ -34,7 +34,6 @@ export function TimeWheelPicker({ value, onChange }: TimeWheelPickerProps) {
         <div>
           <span className="mini-label">{copy.timePicker.eyebrow}</span>
           <strong>{copy.timePicker.title}</strong>
-          <p className="time-picker-note">{copy.timePicker.note}</p>
         </div>
         <span className="time-budget-label">
           {safeValue.hours} {copy.timePicker.hours} {String(safeValue.minutes).padStart(2, "0")}{" "}

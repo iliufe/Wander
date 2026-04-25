@@ -1,4 +1,4 @@
-import type { CategoryId, Venue } from "./types";
+import type { CategoryId, IntentSignals, Venue } from "./types";
 
 type IntentDefinition = {
   matchers: string[];
@@ -18,15 +18,12 @@ type SearchableVenue = Pick<
   "name" | "area" | "address" | "summary" | "tags" | "ugc" | "categories"
 >;
 
-export type ExtractedIntentData = {
-  categories: CategoryId[];
-  searchTerms: string[];
-  requiredTermsByCategory: Partial<Record<CategoryId, string[]>>;
-};
+export type ExtractedIntentData = IntentSignals;
 
 const categorySearchAliases: Record<CategoryId, string[]> = {
   food: ["吃饭", "正餐", "餐厅", "restaurant", "meal", "food"],
   sichuan: ["川菜", "麻辣", "sichuan", "spicy", "hotpot", "火锅"],
+  cinema: ["电影", "电影院", "影院", "影城", "movie", "cinema", "film", "imax"],
   park: ["公园", "park", "garden", "绿地"],
   walk: ["散步", "走走", "walk", "stroll", "步道", "city walk"],
   grocery: ["超市", "便利店", "grocery", "supermarket", "convenience"],
@@ -50,6 +47,12 @@ const intentDefinitions: IntentDefinition[] = [
     categories: ["sichuan", "food"],
     searchTerms: ["川菜", "sichuan", "麻辣"],
     requiredCategories: ["sichuan", "food"],
+  },
+  {
+    matchers: ["电影", "电影院", "影院", "影城", "movie", "cinema", "film", "imax"],
+    categories: ["cinema"],
+    searchTerms: ["电影", "电影院", "影院", "影城", "movie", "cinema", "film", "imax"],
+    requiredCategories: ["cinema"],
   },
   {
     matchers: ["公园", "park", "garden", "绿地"],
@@ -146,6 +149,30 @@ export function extractIntentData(text: string): ExtractedIntentData {
   };
 }
 
+export function mergeIntentSignals(
+  primary?: IntentSignals | null,
+  fallback?: IntentSignals | null
+): IntentSignals {
+  const categories = compressIntentCategories(
+    dedupe([...(primary?.categories ?? []), ...(fallback?.categories ?? [])])
+  );
+  const searchTerms = dedupe([...(primary?.searchTerms ?? []), ...(fallback?.searchTerms ?? [])]);
+  const requiredTermsByCategory = mergeRequiredTermsByCategory(
+    primary?.requiredTermsByCategory,
+    fallback?.requiredTermsByCategory
+  );
+
+  return {
+    categories,
+    searchTerms,
+    requiredTermsByCategory,
+    preferredStyle: primary?.preferredStyle ?? fallback?.preferredStyle ?? null,
+    routeSummary: primary?.routeSummary ?? fallback?.routeSummary ?? null,
+    timePlanSummary: primary?.timePlanSummary ?? fallback?.timePlanSummary ?? null,
+    stopSignals: mergeStopSignals(primary?.stopSignals, fallback?.stopSignals),
+  };
+}
+
 export function venueMatchesSearchTerms(venue: SearchableVenue, searchTerms: string[]) {
   return scoreVenueSearchTerms(venue, searchTerms) > 0;
 }
@@ -202,6 +229,10 @@ function expandSearchTerm(term: string) {
     return ["火锅", "hotpot", "串串", "冒菜", "川锅", "麻辣锅"];
   }
 
+  if (["电影", "电影院", "影院", "影城", "movie", "cinema", "film", "imax"].includes(normalizedTerm)) {
+    return ["电影", "电影院", "影院", "影城", "movie", "cinema", "film", "imax", "theatre"];
+  }
+
   if (["公园", "park", "garden", "绿地"].includes(normalizedTerm)) {
     return ["公园", "park", "garden", "绿地", "口袋公园"];
   }
@@ -235,6 +266,44 @@ function expandSearchTerm(term: string) {
   }
 
   return [term];
+}
+
+function mergeRequiredTermsByCategory(
+  primary?: Partial<Record<CategoryId, string[]>>,
+  fallback?: Partial<Record<CategoryId, string[]>>
+) {
+  const merged: Partial<Record<CategoryId, string[]>> = {};
+  const categories = dedupe([
+    ...Object.keys(primary ?? {}),
+    ...Object.keys(fallback ?? {}),
+  ]) as CategoryId[];
+
+  categories.forEach((category) => {
+    merged[category] = dedupe([
+      ...(primary?.[category] ?? []),
+      ...(fallback?.[category] ?? []),
+    ]);
+  });
+
+  return merged;
+}
+
+function mergeStopSignals(
+  primary?: IntentSignals["stopSignals"],
+  fallback?: IntentSignals["stopSignals"]
+) {
+  const merged = [...(primary ?? []), ...(fallback ?? [])];
+  const seen = new Set<string>();
+
+  return merged.filter((stop) => {
+    const key = `${stop.category}:${normalizeText(stop.label)}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function compressIntentCategories(categories: CategoryId[]) {

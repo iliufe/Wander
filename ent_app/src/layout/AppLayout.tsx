@@ -4,15 +4,12 @@ import { getLocalizedCategoryLabel, useCopy, useLanguage } from "../i18n";
 import { useWander } from "../wander-state";
 
 export function AppLayout() {
-  const { activeStop, closeStop } = useWander();
+  const { activeStop, closeStop, userProfile } = useWander();
   const { language, setLanguage } = useLanguage();
   const copy = useCopy();
-
   const navLinks = [
     { label: copy.layout.navHome, to: "/" },
     { label: copy.layout.navRoutes, to: "/routes" },
-    { label: copy.layout.navCommunity, to: "/community" },
-    { label: copy.layout.navProfile, to: "/profile" },
   ];
 
   return (
@@ -25,7 +22,6 @@ export function AppLayout() {
             <div className="brand-mark">W</div>
             <div className="brand-copy">
               <strong>Wander</strong>
-              <span>{copy.layout.brandTagline}</span>
             </div>
           </div>
           <nav className="topnav" aria-label="Primary">
@@ -57,8 +53,19 @@ export function AppLayout() {
                 EN
               </button>
             </div>
-            <NavLink className="nav-cta" to="/">
-              {copy.layout.cta}
+            <NavLink
+              aria-label={copy.layout.navProfile}
+              className="account-chip avatar-only"
+              title={userProfile.isAuthenticated ? userProfile.name : language === "zh" ? "登录" : "Log in"}
+              to={userProfile.isAuthenticated ? "/profile" : "/login"}
+            >
+              <span className="account-avatar">
+                {userProfile.avatarDataUrl ? (
+                  <img src={userProfile.avatarDataUrl} alt="" />
+                ) : (
+                  userProfile.name.slice(0, 1).toUpperCase()
+                )}
+              </span>
             </NavLink>
           </div>
         </section>

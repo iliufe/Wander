@@ -1,10 +1,12 @@
-import { startTransition } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cityDriftData } from "../data";
-import type { DeviceLocation, LiveDataStatus } from "../types";
-import { TimeWheelPicker } from "./TimeWheelPicker";
-import { getLocalizedCategoryLabel, useCopy, useLanguage } from "../i18n";
+import type { DeviceLocation } from "../types";
+import { useCopy, useLanguage } from "../i18n";
+import { searchStartPlacesWithApi, type StartPlaceSearchResult } from "../services/plans-api";
 import { useWander } from "../wander-state";
+import { CurrentLocationMap } from "./CurrentLocationMap";
+import { TimeWheelPicker } from "./TimeWheelPicker";
 
 export function PlannerPanel() {
   const {
@@ -13,332 +15,328 @@ export function PlannerPanel() {
     location,
     locationReady,
     requestCurrentLocation,
-    generationLabel,
-    liveDataState,
+    selectStartCoordinates,
+    selectStartPlace,
     timeSelection,
     setTimeSelection,
     canGenerate,
-    scenario,
-    setScenario,
-    parsed,
-    activeTemplateId,
     commitPrompt,
     applyQuickPrompt,
+    liveDataState,
+    routes,
   } = useWander();
   const { language } = useLanguage();
   const copy = useCopy();
   const navigate = useNavigate();
+  const labels = buildPlannerLabels(language);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [generationError, setGenerationError] = useState("");
+  const [startQuery, setStartQuery] = useState("");
+  const [startResults, setStartResults] = useState<StartPlaceSearchResult[]>([]);
+  const [startSearchStatus, setStartSearchStatus] = useState<"idle" | "loading" | "empty">("idle");
+  const [startStatusText, setStartStatusText] = useState("");
 
-  const activeTemplate =
-    cityDriftData.sharedRoutes.find((route) => route.id === activeTemplateId) || null;
-  const selectedTimeMinutes = timeSelection.hours * 60 + timeSelection.minutes;
-  const plannerBadges =
-    language === "zh"
-      ? ["GPS 优先", "碎片时间友好", "中英双语"]
-      : ["GPS First", "Free-time Friendly", "ZH / EN"];
+  useEffect(() => {
+    if (!isGenerating || liveDataState.status !== "loading") {
+      return undefined;
+    }
 
-  const handleGenerate = () => {
-    if (!canGenerate) {
+    const timer = window.setInterval(() => {
+      setProgress((current) => Math.min(99, current + 1));
+    }, 180);
+
+    return () => window.clearInterval(timer);
+  }, [isGenerating, liveDataState.status]);
+
+  useEffect(() => {
+    if (!isGenerating || !routes.length) {
+      return undefined;
+    }
+
+    setProgress(100);
+    const timer = window.setTimeout(() => {
+      setIsGenerating(false);
+      navigate("/routes");
+    }, 520);
+
+    return () => window.clearTimeout(timer);
+  }, [isGenerating, navigate, routes.length]);
+
+  useEffect(() => {
+    if (!isGenerating || liveDataState.status !== "error") {
       return;
     }
 
+    setGenerationError(labels.generationFailed);
+    setIsGenerating(false);
+  }, [isGenerating, labels.generationFailed, liveDataState.status]);
+
+  useEffect(() => {
+    const query = startQuery.trim();
+    if (query.length < 2) {
+      setStartResults([]);
+      setStartSearchStatus("idle");
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setStartSearchStatus("loading");
+
+    const timer = window.setTimeout(() => {
+      searchStartPlacesWithApi(
+        {
+          query,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          city: location.cityName || location.districtName,
+          adcode: location.adcode,
+        },
+        controller.signal
+      )
+        .then((places) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          setStartResults(places);
+          setStartSearchStatus(places.length ? "idle" : "empty");
+        })
+        .catch(() => {
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          setStartResults([]);
+          setStartSearchStatus("empty");
+        });
+    }, 360);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [
+    location.adcode,
+    location.cityName,
+    location.districtName,
+    location.latitude,
+    location.longitude,
+    startQuery,
+  ]);
+
+  const handleMapPointSelect = useCallback(
+    (latitude: number, longitude: number) => {
+      setStartStatusText(labels.confirmingPoint);
+      void selectStartCoordinates(latitude, longitude).finally(() => {
+        setStartStatusText(labels.startUpdated);
+      });
+    },
+    [labels.confirmingPoint, labels.startUpdated, selectStartCoordinates]
+  );
+
+  const handleGenerate = () => {
+    if (!canGenerate || isGenerating) {
+      return;
+    }
+
+    setGenerationError("");
+    setProgress(8);
+    setIsGenerating(true);
     commitPrompt();
-    startTransition(() => {
-      navigate("/routes");
-    });
   };
 
   return (
-    <section className="surface panel planner-panel planner-home-panel">
-      <div className="planner-stage-header">
-        <div className="section-heading planner-heading">
-          <span className="eyebrow">{copy.planner.eyebrow}</span>
-          <h2>{copy.planner.title}</h2>
-          <p className="planner-lead">{copy.planner.lead}</p>
+    <section className="planner-home-panel planner-compact">
+      <section className="planner-map-panel">
+        <CurrentLocationMap location={location} onSelectPoint={handleMapPointSelect} />
+        <div className="map-action-row">
+          <button
+            className={`location-button map-location-button ${locationReady ? "is-ready" : ""}`}
+            type="button"
+            onClick={requestCurrentLocation}
+            disabled={location.permission === "requesting" || location.permission === "unsupported"}
+          >
+            {getLocationButtonLabel(location, language)}
+          </button>
+          <span>{startStatusText || labels.mapPickHint}</span>
         </div>
-        <div className="planner-stage-badges">
-          {plannerBadges.map((badge) => (
-            <span className="planner-stage-badge" key={badge}>
-              {badge}
-            </span>
-          ))}
-        </div>
-      </div>
 
-      <div className="planner-stage-grid">
-        <div className="planner-stage-main">
-          <section className="planner-input-card">
-            <label className="input-label" htmlFor="request-input">
-              {copy.planner.requestLabel}
-            </label>
-            <p className="input-help">{copy.planner.requestHelp}</p>
-            <textarea
-              id="request-input"
-              rows={6}
-              value={inputPrompt}
-              onChange={(event) => setInputPrompt(event.target.value)}
-              placeholder={copy.planner.requestPlaceholder}
+        <div className="start-picker-panel">
+          <div className="start-picker-head">
+            <strong>{labels.startTitle}</strong>
+            <span>{location.nearbyPlaceName || location.label}</span>
+          </div>
+          <div className="ride-search-box">
+            <span className="ride-search-icon"></span>
+            <input
+              value={startQuery}
+              placeholder={labels.searchPlaceholder}
+              onChange={(event) => setStartQuery(event.target.value)}
             />
-
-            <div className="prompt-row">
-              <span className="mini-label">{copy.planner.quickExamples}</span>
-              <div className="chip-wrap">
-                {cityDriftData.quickPrompts.map((prompt) => (
-                  <button className="chip" key={prompt} type="button" onClick={() => applyQuickPrompt(prompt)}>
-                    {prompt.length > 22 ? `${prompt.slice(0, 22)}…` : prompt}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <div className="planner-control-grid">
-            <section className="planner-control-card">
-              <TimeWheelPicker value={timeSelection} onChange={setTimeSelection} />
-            </section>
-
-            <section className="planner-control-card planner-decision-card">
-              <div className="scenario-grid planner-scenario-grid">
-                <div className="scenario-block">
-                  <span className="mini-label">{copy.planner.weather}</span>
-                  <div className="segmented-group">
-                    <button
-                      className={`segment ${scenario.weather === "clear" ? "is-active" : ""}`}
-                      type="button"
-                      onClick={() => setScenario((current) => ({ ...current, weather: "clear" }))}
-                    >
-                      {copy.planner.clear}
-                    </button>
-                    <button
-                      className={`segment ${scenario.weather === "rain" ? "is-active" : ""}`}
-                      type="button"
-                      onClick={() => setScenario((current) => ({ ...current, weather: "rain" }))}
-                    >
-                      {copy.planner.rain}
-                    </button>
-                  </div>
-                </div>
-                <div className="scenario-block">
-                  <span className="mini-label">{copy.planner.venueStatus}</span>
-                  <div className="segmented-group">
-                    <button
-                      className={`segment ${scenario.venue === "live" ? "is-active" : ""}`}
-                      type="button"
-                      onClick={() => setScenario((current) => ({ ...current, venue: "live" }))}
-                    >
-                      {copy.planner.venueOpen}
-                    </button>
-                    <button
-                      className={`segment ${scenario.venue === "closed" ? "is-active" : ""}`}
-                      type="button"
-                      onClick={() => setScenario((current) => ({ ...current, venue: "closed" }))}
-                    >
-                      {copy.planner.venueClosed}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <button className="primary-button" type="button" onClick={handleGenerate} disabled={!canGenerate}>
-                {locationReady ? copy.planner.generate : copy.planner.needLocation}
+            {startQuery ? (
+              <button
+                aria-label={labels.clearSearch}
+                className="ride-search-clear"
+                type="button"
+                onClick={() => {
+                  setStartQuery("");
+                  setStartResults([]);
+                  setStartSearchStatus("idle");
+                }}
+              >
+                x
               </button>
-              {!locationReady ? <p className="time-warning">{copy.planner.needLocationHint}</p> : null}
-              {locationReady && selectedTimeMinutes === 0 ? (
-                <p className="time-warning">{copy.planner.needTimeHint}</p>
-              ) : null}
-            </section>
+            ) : null}
+          </div>
+
+          {startSearchStatus === "loading" ? (
+            <div className="start-search-state">{labels.searching}</div>
+          ) : null}
+          {startSearchStatus === "empty" && startQuery.trim().length >= 2 ? (
+            <div className="start-search-state">{labels.noResults}</div>
+          ) : null}
+          {startResults.length ? (
+            <div className="start-result-list">
+              {startResults.map((place, index) => (
+                <button
+                  className="start-result-item"
+                  key={place.id}
+                  type="button"
+                  onClick={() => {
+                    selectStartPlace(place);
+                    setStartResults([]);
+                    setStartQuery(place.name);
+                    setStartSearchStatus("idle");
+                    setStartStatusText(labels.startUpdated);
+                  }}
+                >
+                  <span className="start-result-pin">{index + 1}</span>
+                  <span className="start-result-copy">
+                    <strong>{place.name}</strong>
+                    <small>{place.address || place.area}</small>
+                  </span>
+                  <span className="start-result-distance">{formatDistance(place.distanceMeters, language)}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="planner-form-panel">
+        <label className="input-label" htmlFor="request-input">
+          {copy.planner.requestLabel}
+        </label>
+        <textarea
+          id="request-input"
+          rows={4}
+          value={inputPrompt}
+          onChange={(event) => setInputPrompt(event.target.value)}
+          placeholder={copy.planner.requestPlaceholder}
+        />
+
+        <div className="prompt-row compact">
+          <div className="chip-wrap">
+            {cityDriftData.quickPrompts.slice(0, 3).map((prompt) => (
+              <button className="chip" key={prompt} type="button" onClick={() => applyQuickPrompt(prompt)}>
+                {prompt.length > 18 ? `${prompt.slice(0, 18)}...` : prompt}
+              </button>
+            ))}
           </div>
         </div>
+      </section>
 
-        <aside className="planner-stage-side">
-          <section className="location-card planner-side-card">
-            <div className="location-copy">
-              <span className="mini-label">{copy.planner.currentStart}</span>
-              <strong>{location.label}</strong>
-              <p>{location.detail}</p>
-              {location.permission === "granted" ? (
-                <div className="location-meta-row">
-                  <span className="location-meta-pill">
-                    {copy.planner.precision} {location.accuracyMeters ?? "--"} {language === "zh" ? "米" : "m"}
-                  </span>
-                  <span className="location-meta-pill">
-                    {liveDataState.source === "demo" ? copy.planner.sourceFallback : copy.planner.sourceOpen}
-                  </span>
-                </div>
-              ) : null}
-            </div>
-            <div className="location-actions">
-              <button
-                className={`location-button ${locationReady ? "is-ready" : ""}`}
-                type="button"
-                onClick={requestCurrentLocation}
-                disabled={location.permission === "requesting" || location.permission === "unsupported"}
-              >
-                {getLocationButtonLabel(location, language)}
-              </button>
-              <span className={`location-state is-${location.permission}`}>
-                {getLocationStateLabel(location, language)}
-              </span>
-            </div>
-          </section>
+      <section className="planner-controls-panel">
+        <TimeWheelPicker value={timeSelection} onChange={setTimeSelection} />
 
-          <section className="summary-card planner-side-card planner-status-card">
-            <div className="planner-status-head">
-              <div>
-                <span className="mini-label">{copy.planner.realtimeSource}</span>
-                <h3>{getLiveStateLabel(liveDataState.status, language)}</h3>
-                <p>{copy.planner.statusCardLead}</p>
-              </div>
-              <span className={`planner-status-pill is-${liveDataState.status}`}>
-                {copy.planner.realtimeStatus}
-              </span>
+        {isGenerating ? (
+          <div className="planner-loading-card" aria-live="polite">
+            <div className="planner-loading-top">
+              <span>{labels.generating}</span>
+              <strong>{progress}%</strong>
             </div>
-
-            <div className="planner-status-grid">
-              <article className="planner-status-metric">
-                <span>{copy.planner.dataSource}</span>
-                <strong>
-                  {liveDataState.source === "open"
-                    ? "Nominatim + Overpass + OSRM"
-                    : "Wander Local Pack"}
-                </strong>
-              </article>
-              <article className="planner-status-metric">
-                <span>{copy.planner.generatedAt}</span>
-                <strong>{generationLabel}</strong>
-              </article>
-              <article className="planner-status-metric">
-                <span>{copy.planner.candidateCount}</span>
-                <strong>{liveDataState.poiCount}</strong>
-              </article>
-              <article className="planner-status-metric">
-                <span>{copy.planner.searchRadius}</span>
-                <strong>{formatStatusRadius(liveDataState.radiusMeters, language)}</strong>
-              </article>
+            <div className="planner-progress-track">
+              <div className="planner-progress-bar" style={{ width: `${progress}%` }}></div>
             </div>
+          </div>
+        ) : null}
 
-            <div className="planner-status-note">
-              <span className="mini-label">{copy.planner.systemNote}</span>
-              <p>{liveDataState.note}</p>
-            </div>
-          </section>
+        {generationError ? <p className="auth-error">{generationError}</p> : null}
 
-          <section className="summary-card planner-side-card planner-parse-card">
-            <span className="mini-label">{copy.planner.parsed}</span>
-            <ul className="summary-list">
-              <li>
-                <span>{copy.planner.start}</span>
-                <strong>{parsed.startPoint}</strong>
-              </li>
-              <li>
-                <span>{copy.planner.time}</span>
-                <strong>{parsed.timeLabel}</strong>
-              </li>
-              <li>
-                <span>{copy.planner.theme}</span>
-                <strong>
-                  {parsed.categories.map((category) => getLocalizedCategoryLabel(category, language)).join(" · ")}
-                </strong>
-              </li>
-              <li>
-                <span>{copy.planner.scenario}</span>
-                <strong>
-                  {scenario.weather === "rain" ? copy.planner.rain : copy.planner.clear} ·{" "}
-                  {scenario.venue === "closed" ? copy.planner.venueClosed : copy.planner.venueOpen}
-                </strong>
-              </li>
-            </ul>
-            <p>
-              {activeTemplate
-                ? copy.planner.templateApplied
-                : liveDataState.source === "demo"
-                  ? copy.planner.localFallbackNote
-                  : copy.planner.livePoiNote}
-            </p>
-          </section>
-        </aside>
-      </div>
+        <button
+          className="primary-button planner-submit"
+          type="button"
+          onClick={handleGenerate}
+          disabled={!canGenerate || isGenerating}
+        >
+          {isGenerating ? labels.generatingShort : locationReady ? copy.planner.generate : copy.planner.needLocation}
+        </button>
+      </section>
     </section>
   );
 }
 
+function buildPlannerLabels(language: "zh" | "en") {
+  return language === "zh"
+    ? {
+        startTitle: "出发点",
+        searchPlaceholder: "输入关键词选择出发地址",
+        searching: "正在搜索地址...",
+        noResults: "暂时没有找到匹配地址，请换个关键词。",
+        startUpdated: "已设为出发点",
+        confirmingPoint: "正在确认地图选点",
+        mapPickHint: "点击地图可精修出发点",
+        clearSearch: "清空搜索",
+        generating: "正在生成路线",
+        generatingShort: "生成中",
+        generationFailed: "生成失败，请稍后再试。",
+      }
+    : {
+        startTitle: "Start",
+        searchPlaceholder: "Enter keywords to choose a start address",
+        searching: "Searching addresses...",
+        noResults: "No matching address yet. Try another keyword.",
+        startUpdated: "Start updated",
+        confirmingPoint: "Confirming map point",
+        mapPickHint: "Tap the map to refine the start",
+        clearSearch: "Clear search",
+        generating: "Generating routes",
+        generatingShort: "Generating",
+        generationFailed: "Generation failed. Please try again.",
+      };
+}
+
 function getLocationButtonLabel(location: DeviceLocation, language: "zh" | "en") {
   if (location.permission === "requesting") {
-    return language === "zh" ? "正在请求定位…" : "Requesting Location…";
+    return language === "zh" ? "定位中" : "Locating";
   }
 
   if (location.permission === "granted") {
-    return language === "zh" ? "更新当前位置" : "Refresh Location";
+    return language === "zh" ? "重新定位" : "Refresh";
   }
 
   if (location.permission === "denied" || location.permission === "error") {
-    return language === "zh" ? "重新请求定位" : "Try Again";
+    return language === "zh" ? "重新定位" : "Try Again";
   }
 
   if (location.permission === "unsupported") {
-    return language === "zh" ? "当前浏览器不支持定位" : "Location Unsupported";
+    return language === "zh" ? "不可用" : "Unavailable";
   }
 
-  return language === "zh" ? "允许 GPS 定位" : "Allow GPS";
+  return language === "zh" ? "开启 GPS" : "Allow GPS";
 }
 
-function getLocationStateLabel(location: DeviceLocation, language: "zh" | "en") {
-  if (location.permission === "granted") {
-    return language === "zh" ? "已连接 GPS" : "GPS Ready";
+function formatDistance(distanceMeters: number, language: "zh" | "en") {
+  if (!Number.isFinite(distanceMeters)) {
+    return "";
   }
 
-  if (location.permission === "requesting") {
-    return language === "zh" ? "等待授权" : "Waiting";
+  if (distanceMeters < 1000) {
+    return language === "zh" ? `${Math.round(distanceMeters)}米` : `${Math.round(distanceMeters)}m`;
   }
 
-  if (location.permission === "denied") {
-    return language === "zh" ? "权限被拒绝" : "Denied";
-  }
-
-  if (location.permission === "unsupported") {
-    return language === "zh" ? "定位不可用" : "Unsupported";
-  }
-
-  if (location.permission === "error") {
-    return language === "zh" ? "定位失败" : "Error";
-  }
-
-  return language === "zh" ? "尚未授权" : "Idle";
-}
-
-function getLiveStateLabel(status: LiveDataStatus, language: "zh" | "en") {
-  if (status === "live") {
-    return language === "zh" ? "已接入附近实时候选点" : "Live Nearby Data";
-  }
-
-  if (status === "loading") {
-    return language === "zh" ? "正在刷新附近地点" : "Refreshing Nearby Places";
-  }
-
-  if (status === "empty") {
-    return language === "zh" ? "附近候选点不足" : "Not Enough Nearby Places";
-  }
-
-  if (status === "fallback") {
-    return language === "zh" ? "本地精选包已接管" : "Local Fallback Active";
-  }
-
-  if (status === "error") {
-    return language === "zh" ? "实时搜索异常" : "Realtime Search Error";
-  }
-
-  return language === "zh" ? "等待定位" : "Waiting For Location";
-}
-
-function formatStatusRadius(radiusMeters: number | null, language: "zh" | "en") {
-  if (radiusMeters == null) {
-    return "--";
-  }
-
-  if (radiusMeters >= 1000) {
-    const kilometers = radiusMeters / 1000;
-    return language === "zh" ? `${kilometers.toFixed(1)} 公里` : `${kilometers.toFixed(1)} km`;
-  }
-
-  return language === "zh" ? `${radiusMeters} 米` : `${radiusMeters} m`;
+  return language === "zh"
+    ? `${(distanceMeters / 1000).toFixed(1)}公里`
+    : `${(distanceMeters / 1000).toFixed(1)}km`;
 }

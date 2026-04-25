@@ -20,7 +20,7 @@ export function buildLocalizedLiveClusterAccent(
 
   if (liveDataState.status === "live") {
     return language === "zh"
-      ? `开放地图实时搜索 · ${liveDataState.poiCount} 个候选点 · 控制在 ${radius} 内`
+      ? `高德实时搜索 · ${liveDataState.poiCount} 个地点 · 控制在 ${radius} 内`
       : `Open-map live search · ${liveDataState.poiCount} candidates · kept within ${radius}`;
   }
 
@@ -38,7 +38,7 @@ export function buildLocalizedLiveClusterAccent(
 
   if (liveDataState.status === "error") {
     return language === "zh"
-      ? "开放地图服务暂时不可用"
+      ? "高德地图服务暂时不可用"
       : "Open-map services are temporarily unavailable";
   }
 
@@ -89,8 +89,8 @@ export function buildLiveDataNote(
 
   if (status === "idle") {
     return language === "zh"
-      ? "允许定位后，Wander 会用开放地图数据搜索你附近可去的地点并实时规划路线。"
-      : "Once location is allowed, Wander will search nearby places with open-map data and rebuild routes in realtime.";
+      ? "允许定位后，Wander 会用高德地图搜索你附近可去的地点并实时规划路线。"
+      : "Once location is allowed, Wander will search nearby places with AMap and rebuild routes in realtime.";
   }
 
   if (status === "loading") {
@@ -101,7 +101,7 @@ export function buildLiveDataNote(
 
   if (status === "live") {
     return language === "zh"
-      ? `当前已接入开放地图实时结果，共找到 ${poiCount} 个可用候选点。`
+      ? `当前已接入高德实时结果，共找到 ${poiCount} 个可用地点。`
       : `Open-map live results are active now, with ${poiCount} viable nearby candidates found.`;
   }
 

@@ -13,6 +13,7 @@ export const cityDriftData = {
   categoryMeta: {
     food: { label: "轻晚餐", short: "吃" },
     sichuan: { label: "川菜", short: "川" },
+    cinema: { label: "电影", short: "影" },
     park: { label: "公园散步", short: "园" },
     walk: { label: "城市散步", short: "走" },
     grocery: { label: "顺路补给", short: "买" },

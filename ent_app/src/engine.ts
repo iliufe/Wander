@@ -1,5 +1,10 @@
 import { cityDriftData } from "./data";
-import { extractIntentData, scoreVenueSearchTerms, venueMatchesSearchTerms } from "./intent";
+import {
+  extractIntentData,
+  mergeIntentSignals,
+  scoreVenueSearchTerms,
+  venueMatchesSearchTerms,
+} from "./intent";
 import type {
   AppLanguage,
   CategoryId,
@@ -28,10 +33,11 @@ const chineseDigits: Record<string, number> = {
   十: 10,
 };
 
-const categoryLabels: Record<AppLanguage, Record<CategoryId, string>> = {
+const categoryLabels: Record<AppLanguage, Record<string, string>> = {
   zh: {
     food: "轻晚餐",
     sichuan: "川菜",
+    cinema: "电影",
     park: "公园散步",
     walk: "城市散步",
     grocery: "顺路补给",
@@ -45,6 +51,7 @@ const categoryLabels: Record<AppLanguage, Record<CategoryId, string>> = {
   en: {
     food: "Meal",
     sichuan: "Sichuan",
+    cinema: "Cinema",
     park: "Park Walk",
     walk: "City Walk",
     grocery: "Groceries",
@@ -106,6 +113,7 @@ const styleMeta: Record<RouteStyle, {
 const categoryKeywords: Record<CategoryId, string[]> = {
   food: ["吃饭", "晚饭", "晚餐", "午饭", "餐厅", "dinner", "lunch", "meal", "restaurant", "food", "eat"],
   sichuan: ["川菜", "麻辣", "火锅", "串串", "冒菜", "spicy", "sichuan", "hotpot", "chili", "chilli"],
+  cinema: ["电影", "电影院", "影院", "影城", "movie", "cinema", "film", "imax"],
   park: ["公园", "绿地", "草地", "park", "garden", "green"],
   walk: ["散步", "走走", "逛逛", "city walk", "walk", "walking", "stroll", "wander"],
   grocery: ["补给", "超市", "便利店", "生鲜", "买菜", "买点吃的", "groceries", "grocery", "supermarket", "snacks"],
@@ -120,6 +128,7 @@ const categoryKeywords: Record<CategoryId, string[]> = {
 const categoryCompanions: Partial<Record<CategoryId, CategoryId[]>> = {
   food: ["walk", "dessert", "grocery"],
   sichuan: ["walk", "dessert", "grocery"],
+  cinema: ["food", "dessert", "cafe"],
   park: ["cafe", "dessert", "bookstore"],
   walk: ["cafe", "dessert", "grocery"],
   grocery: ["food", "cafe", "walk"],
@@ -197,7 +206,10 @@ export function parseRequest(text: string, options: GenerationOptions = {}): Par
       ? Math.max(0, Math.min(12 * 60, Math.round(options.timeOverrideMinutes)))
       : extractTimeMinutes(text, template?.timeHours);
   const mood = inferMood(text);
-  const intentData = extractIntentData(text);
+  const heuristicIntent = extractIntentData(text);
+  const intentData = options.intentOverride?.stopSignals?.length
+    ? mergeIntentSignals(options.intentOverride, heuristicIntent)
+    : mergeIntentSignals(heuristicIntent, options.intentOverride);
   const inferredCategories = inferCategories(text, mood, template?.desiredCategories);
 
   return {
@@ -215,6 +227,10 @@ export function parseRequest(text: string, options: GenerationOptions = {}): Par
       venue: options.scenario?.venue ?? "live",
     },
     templateId: template?.id ?? null,
+    preferredStyle: intentData.preferredStyle ?? null,
+    routeSummary: intentData.routeSummary ?? null,
+    timePlanSummary: intentData.timePlanSummary ?? null,
+    stopSignals: intentData.stopSignals ?? [],
   };
 }
 
@@ -232,7 +248,7 @@ export function generateRoutes(text: string, options: GenerationOptions = {}) {
     options.preferredClusterId,
     options.startCoordinates
   );
-  const styles = buildStylesByMood(parsed.mood);
+  const styles = buildStylesByMood(parsed.mood, parsed.preferredStyle);
   const minimumStops = options.liveMode ? 1 : parsed.timeMinutes <= 150 ? 2 : 3;
 
   const routes = styles
@@ -369,10 +385,20 @@ function chooseClusterRanking(
     .map((item) => item.clusterId);
 }
 
-function buildStylesByMood(mood: ParsedRequest["mood"]): RouteStyle[] {
-  if (mood === "scenic" || mood === "slow") return ["scenic", "balanced", "efficient"];
-  if (mood === "efficient") return ["efficient", "balanced", "scenic"];
-  return ["balanced", "efficient", "scenic"];
+function buildStylesByMood(
+  mood: ParsedRequest["mood"],
+  preferredStyle: RouteStyle | null = null
+) {
+  const defaults: RouteStyle[] =
+    mood === "scenic" || mood === "slow"
+      ? ["scenic", "balanced", "efficient"]
+      : mood === "efficient"
+        ? ["efficient", "balanced", "scenic"]
+        : ["balanced", "efficient", "scenic"];
+
+  return preferredStyle
+    ? ([preferredStyle, ...defaults.filter((style) => style !== preferredStyle)] as RouteStyle[])
+    : defaults;
 }
 
 function expandCategories(baseCategories: CategoryId[], timeHours: number, style: RouteStyle, mood: ParsedRequest["mood"]) {
@@ -393,6 +419,59 @@ function expandCategories(baseCategories: CategoryId[], timeHours: number, style
     if (result.length < maxStops && !result.includes(candidate)) result.push(candidate);
   });
   return result.slice(0, maxStops);
+}
+
+type RouteStopBlueprint = {
+  requestedCategory: CategoryId;
+  label: string | null;
+  durationMinutes: number | null;
+  searchTerms: string[];
+  requiredTerms: string[];
+  rationale: string | null;
+  indoorPreferred: boolean;
+};
+
+function buildStopBlueprints(parsed: ParsedRequest, style: RouteStyle): RouteStopBlueprint[] {
+  const expandedCategories = expandCategories(parsed.categories, parsed.timeHours, style, parsed.mood);
+  const maxStops = expandedCategories.length;
+  const usedCategories = new Set<CategoryId>();
+  const blueprints: RouteStopBlueprint[] = [];
+
+  (parsed.stopSignals ?? []).forEach((stop) => {
+    if (blueprints.length >= maxStops || usedCategories.has(stop.category)) {
+      return;
+    }
+
+    usedCategories.add(stop.category);
+    blueprints.push({
+      requestedCategory: stop.category,
+      label: stop.label || null,
+      durationMinutes: stop.durationMinutes || null,
+      searchTerms: stop.searchTerms ?? [],
+      requiredTerms: stop.requiredTerms ?? [],
+      rationale: stop.rationale || null,
+      indoorPreferred: Boolean(stop.indoorPreferred),
+    });
+  });
+
+  expandedCategories.forEach((category) => {
+    if (blueprints.length >= maxStops || usedCategories.has(category)) {
+      return;
+    }
+
+    usedCategories.add(category);
+    blueprints.push({
+      requestedCategory: category,
+      label: null,
+      durationMinutes: null,
+      searchTerms: [],
+      requiredTerms: [],
+      rationale: null,
+      indoorPreferred: false,
+    });
+  });
+
+  return blueprints;
 }
 
 function applyScenarioToCategory(category: CategoryId, scenario: ParsedRequest["scenario"], language: AppLanguage) {
@@ -419,14 +498,15 @@ function buildRoute(
 ): RouteOption {
   const providedPool = options.venuePool ?? null;
   const sourcePool = options.liveMode || providedPool?.length ? providedPool ?? [] : cityDriftData.venues;
-  const categories = expandCategories(parsed.categories, parsed.timeHours, style, parsed.mood);
+  const stopBlueprints = buildStopBlueprints(parsed, style);
   const used = new Set<string>();
   const adjustments: string[] = [];
   const stops: RouteStop[] = [];
   const clusterMeta = resolveClusterMeta(clusterId, options, language);
   let currentCoordinates = options.startCoordinates ?? getClusterAnchor(clusterId, sourcePool);
 
-  categories.forEach((category) => {
+  stopBlueprints.forEach((blueprint) => {
+    const category = blueprint.requestedCategory;
     const adjusted = applyScenarioToCategory(category, parsed.scenario, language);
     let venue = findVenue(
       adjusted.finalCategory,
@@ -437,7 +517,8 @@ function buildRoute(
       currentCoordinates,
       style,
       parsed.categories,
-      routeIndex
+      routeIndex,
+      blueprint
     );
 
     if (!venue) {
@@ -448,7 +529,8 @@ function buildRoute(
         currentCoordinates,
         style,
         parsed.categories,
-        routeIndex
+        routeIndex,
+        blueprint
       );
       if (!fallbackVenue) {
         adjustments.push(language === "zh"
@@ -469,7 +551,13 @@ function buildRoute(
     used.add(venue.id);
     const venueCoordinates = getVenueCoordinates(venue);
     const travel = currentCoordinates ? estimateTravel(distanceMetersBetweenCoordinates(currentCoordinates, venueCoordinates), style, language) : null;
-    const localizedVenue = localizeVenueForRoute(venue, category, language, routeIndex, stops.length);
+    const localizedVenue = localizeVenueForRoute(
+      applyBlueprintToVenue(venue, blueprint, language),
+      category,
+      language,
+      routeIndex,
+      stops.length
+    );
 
     stops.push({
       ...localizedVenue,
@@ -494,6 +582,7 @@ function buildRoute(
   const maxLegDistance = Math.max(0, ...stops.map((stop) => stop.travelDistanceMetersFromPrevious ?? 0));
   const hitCount = parsed.categories.filter((category) => stops.some((stop) => matchesCategory(stop, category))).length;
   const fitScore = Math.min(97, 64 + hitCount * 9 + Math.max(0, stops.length - 2) * 4 + (parsed.scenario.weather === "rain" || parsed.scenario.venue === "closed" ? -2 : 3) - routeIndex);
+  const routeSummary = buildRouteSummary(parsed, stops, totalMinutes, language);
 
   return {
     id: `${clusterId}-${style}`,
@@ -501,7 +590,7 @@ function buildRoute(
     clusterLabel: clusterMeta.label,
     clusterAccent: clusterMeta.accent,
     title: `${clusterMeta.label} · ${styleMeta[style].title[language]}`,
-    subtitle: styleMeta[style].detail[language],
+    subtitle: parsed.timePlanSummary || parsed.routeSummary || styleMeta[style].detail[language],
     style,
     fitScore,
     totalMinutes,
@@ -509,7 +598,7 @@ function buildRoute(
     hitCount,
     stops,
     adjustments: dedupe(adjustments),
-    summary: buildRouteSummary(parsed, stops, totalMinutes, language),
+    summary: routeSummary,
     transitSummary: buildTransitSummary(totalTransitMinutes, maxLegDistance, language),
   };
 }
@@ -540,7 +629,8 @@ function findVenue(
   origin: Coordinates | null,
   style: RouteStyle,
   requestedCategories: CategoryId[],
-  routeIndex: number
+  routeIndex: number,
+  blueprint?: RouteStopBlueprint | null
 ) {
   const candidates = pool.filter(
     (venue) =>
@@ -552,6 +642,8 @@ function findVenue(
   const requiredSearchTerms = dedupe([
     ...(parsed.requiredTermsByCategory[category] ?? []),
     ...(category === "food" ? parsed.requiredTermsByCategory.sichuan ?? [] : []),
+    ...(blueprint?.requiredTerms ?? []),
+    ...(blueprint?.searchTerms ?? []),
   ]);
   const targetedCandidates = requiredSearchTerms.length
     ? candidates.filter((venue) => venueMatchesSearchTerms(venue, requiredSearchTerms))
@@ -561,7 +653,7 @@ function findVenue(
   const ranked = activeCandidates
     .map((venue) => ({
       venue,
-      score: scoreVenue(venue, clusterId, origin, style, requestedCategories, category, parsed),
+      score: scoreVenue(venue, clusterId, origin, style, requestedCategories, category, parsed, blueprint),
     }))
     .sort((left, right) => right.score - left.score);
 
@@ -575,7 +667,8 @@ function findFallbackVenue(
   origin: Coordinates | null,
   style: RouteStyle,
   requestedCategories: CategoryId[],
-  routeIndex: number
+  routeIndex: number,
+  blueprint?: RouteStopBlueprint | null
 ) {
   const fallbackCategory = requestedCategories[0] ?? "food";
   const candidates = pool.filter(
@@ -585,7 +678,7 @@ function findFallbackVenue(
   const ranked = candidates
     .map((venue) => ({
       venue,
-      score: scoreVenue(venue, "live", origin, style, requestedCategories, fallbackCategory, parsed),
+      score: scoreVenue(venue, "live", origin, style, requestedCategories, fallbackCategory, parsed, blueprint),
     }))
     .sort((left, right) => right.score - left.score);
 
@@ -629,6 +722,39 @@ function trimStopsToBudget(stops: RouteStop[], targetMinutes: number, isLiveMode
     if (calculateMinutes(stops) <= targetMinutes + 15) break;
     stops.pop();
   }
+}
+
+function applyBlueprintToVenue(
+  venue: Venue,
+  blueprint: RouteStopBlueprint,
+  language: AppLanguage
+): Venue {
+  const nextDuration =
+    blueprint.durationMinutes != null
+      ? Math.max(10, Math.min(120, Math.round(blueprint.durationMinutes)))
+      : venue.duration;
+
+  const nextSummary = blueprint.rationale
+    ? language === "zh"
+      ? `${venue.summary} ${blueprint.rationale}`
+      : blueprint.rationale
+    : venue.summary;
+
+  const nextTip = blueprint.rationale || venue.ugc.tip;
+  const nextTags = blueprint.label
+    ? dedupe([blueprint.label, ...venue.tags]).slice(0, 4)
+    : venue.tags;
+
+  return {
+    ...venue,
+    duration: nextDuration,
+    summary: nextSummary,
+    tags: nextTags,
+    ugc: {
+      ...venue.ugc,
+      tip: nextTip,
+    },
+  };
 }
 
 function localizeVenueForRoute(
@@ -739,7 +865,8 @@ function scoreVenue(
   style: RouteStyle,
   requestedCategories: CategoryId[],
   targetCategory: CategoryId,
-  parsed: ParsedRequest
+  parsed: ParsedRequest,
+  blueprint?: RouteStopBlueprint | null
 ) {
   const distancePenalty = origin ? distanceMetersBetweenCoordinates(origin, getVenueCoordinates(venue)) / 260 : 0;
   const clusterBonus = clusterId === "live" ? 7 : venue.cluster === clusterId ? 10 : 0;
@@ -757,6 +884,7 @@ function scoreVenue(
   const durationBonus = scoreDurationFit(venue.duration, parsed.timeMinutes, parsed.mood);
   const promptBonus = scorePromptAffinity(venue, parsed.rawText, parsed.mood, targetCategory);
   const keywordBonus = scoreVenueSearchTerms(venue, parsed.searchTerms) * 1.6;
+  const stopSearchBonus = blueprint ? scoreVenueSearchTerms(venue, blueprint.searchTerms) * 2.2 : 0;
 
   return (
     venue.rating * 22 +
@@ -769,6 +897,7 @@ function scoreVenue(
     weatherBonus +
     durationBonus +
     keywordBonus +
+    stopSearchBonus +
     promptBonus -
     distancePenalty
   );
@@ -990,7 +1119,7 @@ function localizeHours(hours: string, language: AppLanguage) {
 }
 
 function getCategoryLabelLocalized(category: CategoryId, language: AppLanguage) {
-  return categoryLabels[language][category];
+  return categoryLabels[language][category] || categoryLabels.en[category] || category;
 }
 
 function clampTimeMinutes(minutes: number, minimum = 30) {
