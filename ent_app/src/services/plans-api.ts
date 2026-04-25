@@ -68,6 +68,7 @@ export async function describeLocationWithApi(
   const response = await fetch("/api/location/reverse", {
     method: "POST",
     signal,
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -102,6 +103,7 @@ export async function generatePlansWithApi(
   const response = await fetch("/api/plans/generate", {
     method: "POST",
     signal,
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -139,6 +141,7 @@ export async function searchStartPlacesWithApi(
   const response = await fetch("/api/location/search", {
     method: "POST",
     signal,
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
