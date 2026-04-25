@@ -40,7 +40,7 @@
 先激活项目里的独立环境：
 
 ```powershell
-conda activate C:\Users\Roxy\Desktop\project\ent_app\.conda\envs\entapp_node
+conda activate C:\Users\Roxy\Desktop\project\ent_app\ent_app\.conda\envs\entapp_node
 ```
 
 然后运行：

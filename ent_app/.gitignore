@@ -3,3 +3,7 @@ dist/
 .vite/
 .conda/
 *.tsbuildinfo
+.env.server
+.env.server.local
+.env.local
+.env.*.local
