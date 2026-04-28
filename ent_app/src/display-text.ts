@@ -36,6 +36,14 @@ const phrasePinyin: Array<[string, string]> = [
   ["\u5929\u955c\u6e56", "Tianjing Hu"],
   ["\u4e07\u8fbe\u5e7f\u573a", "Wanda Guangchang"],
   ["\u5b9d\u9f99\u5e7f\u573a", "Baolong Guangchang"],
+  ["\u5c0f\u8001\u5f1f\u5ddd\u83dc\u9986", "Xiao Lao Di Chuan Cai Guan"],
+  ["\u5c0f\u8001\u5f1f", "Xiao Lao Di"],
+  ["\u5ddd\u83dc\u9986", "Chuan Cai Guan"],
+  ["\u5b9d\u9f99\u5e97", "Baolong Dian"],
+  ["\u5b9d\u9f99", "Baolong"],
+  ["\u5ddd\u83dc", "Chuan Cai"],
+  ["\u83dc\u9986", "Cai Guan"],
+  ["\u8001\u5f1f", "Lao Di"],
   ["\u706b\u9505", "Huo Guo"],
   ["\u516c\u56ed", "Gong Yuan"],
   ["\u7535\u5f71\u9662", "Dian Ying Yuan"],
@@ -61,6 +69,7 @@ const charPinyin: Record<string, string> = {
   "\u5c0f": "Xiao",
   "\u65b0": "Xin",
   "\u8001": "Lao",
+  "\u5f1f": "Di",
   "\u592a": "Tai",
   "\u4ed3": "Cang",
   "\u82cf": "Su",
@@ -114,6 +123,7 @@ const charPinyin: Record<string, string> = {
   "\u9762": "Mian",
   "\u5403": "Chi",
   "\u5ddd": "Chuan",
+  "\u83dc": "Cai",
   "\u6d41": "Liu",
   "\u706b": "Huo",
   "\u9505": "Guo",
@@ -160,6 +170,34 @@ const charPinyin: Record<string, string> = {
   "\u8fbe": "Da",
   "\u5b9d": "Bao",
   "\u9f99": "Long",
+  "\u6e14": "Yu",
+  "\u9c9c": "Xian",
+  "\u725b": "Niu",
+  "\u7f8a": "Yang",
+  "\u9e21": "Ji",
+  "\u732a": "Zhu",
+  "\u9c7c": "Yu",
+  "\u867e": "Xia",
+  "\u87f9": "Xie",
+  "\u996e": "Yin",
+  "\u9152": "Jiu",
+  "\u5427": "Ba",
+  "\u6c64": "Tang",
+  "\u7ca5": "Zhou",
+  "\u7c89": "Fen",
+  "\u997a": "Jiao",
+  "\u9984": "Tun",
+  "\u660e": "Ming",
+  "\u6708": "Yue",
+  "\u661f": "Xing",
+  "\u5bb6": "Jia",
+  "\u5ba2": "Ke",
+  "\u9999": "Xiang",
+  "\u5473": "Wei",
+  "\u798f": "Fu",
+  "\u6ee1": "Man",
+  "\u5174": "Xing",
+  "\u9686": "Long",
 };
 
 export function hasNonEnglishText(value: string | null | undefined) {
@@ -269,7 +307,7 @@ function toPinyinDisplay(value: string | null | undefined, fallback: string) {
 
 function toPinyinLike(value: string) {
   let output = value;
-  phrasePinyin.forEach(([phrase, pinyin]) => {
+  [...phrasePinyin].sort((left, right) => right[0].length - left[0].length).forEach(([phrase, pinyin]) => {
     output = output.split(phrase).join(` ${pinyin} `);
   });
 
@@ -285,6 +323,8 @@ function toPinyinLike(value: string) {
       const mapped = charPinyin[char];
       if (mapped) {
         tokens.push(mapped);
+      } else {
+        tokens.push(char);
       }
       continue;
     }
@@ -304,6 +344,8 @@ function toPinyinLike(value: string) {
     .replace(/\s+/g, " ")
     .replace(/\s+([A-Za-z])/g, " $1")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+([）)])/g, "$1")
+    .replace(/([（(])\s+/g, "$1")
     .trim();
 }
 
