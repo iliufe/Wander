@@ -181,6 +181,10 @@ export function toPublicUser(user) {
   };
 }
 
+export function getUserStoreMode() {
+  return hasPostgres() ? "postgres" : "file";
+}
+
 export function createPublicError(message, statusCode = 400) {
   const error = new Error(message);
   error.statusCode = statusCode;

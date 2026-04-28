@@ -18,6 +18,7 @@ import {
 } from "./services/plans-api";
 import {
   fetchCurrentUser,
+  isEmailAlreadyUsedError,
   loginAccount,
   logoutAccount,
   registerAccount,
@@ -47,6 +48,11 @@ type OpenedStop = {
   stopId: string;
 } | null;
 
+export type AuthActionResult = {
+  ok: boolean;
+  reason?: "email-used" | "invalid";
+};
+
 interface WanderContextValue {
   inputPrompt: string;
   activePrompt: string;
@@ -72,8 +78,8 @@ interface WanderContextValue {
   scenario: ScenarioState;
   setScenario: (updater: ScenarioState | ((current: ScenarioState) => ScenarioState)) => void;
   userProfile: UserProfile;
-  login: (payload: { email: string; name?: string; password: string }) => Promise<boolean>;
-  register: (payload: { email: string; name: string; password: string }) => Promise<boolean>;
+  login: (payload: { email: string; name?: string; password: string }) => Promise<AuthActionResult>;
+  register: (payload: { email: string; name: string; password: string }) => Promise<AuthActionResult>;
   logout: () => void;
   updateUserProfile: (profile: Partial<Omit<UserProfile, "isAuthenticated" | "password">>) => Promise<void>;
   savedAddresses: SavedAddress[];
@@ -700,18 +706,18 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         try {
           const user = await loginAccount({ email, password });
           setUserProfile(normalizeRemoteUser(user));
-          return true;
+          return { ok: true };
         } catch {
-          return false;
+          return { ok: false, reason: "invalid" };
         }
       },
       register: async ({ email, name, password }) => {
         try {
           const user = await registerAccount({ email, name, password });
           setUserProfile(normalizeRemoteUser(user));
-          return true;
-        } catch {
-          return false;
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, reason: isEmailAlreadyUsedError(error) ? "email-used" : "invalid" };
         }
       },
       logout: () => {

@@ -14,6 +14,7 @@ import {
   createPublicError,
   deleteSession,
   getUserBySessionToken,
+  getUserStoreMode,
   loginUser,
   registerUser,
   toPublicUser,
@@ -65,6 +66,8 @@ const server = createServer(async (request, response) => {
         qwenConfigured: Boolean(dashScopeApiKey),
         amapConfigured: Boolean(amapConfig.key),
         frontendBuilt: existsSync(indexHtmlPath),
+        authApi: true,
+        userStore: getUserStoreMode(),
       });
       return;
     }

@@ -69,8 +69,14 @@ export function LoginPage() {
           });
 
     setIsSubmitting(false);
-    if (!success) {
-      setError(mode === "register" ? labels.registerFailed : labels.loginFailed);
+    if (!success.ok) {
+      setError(
+        mode === "register" && success.reason === "email-used"
+          ? labels.emailUsed
+          : mode === "register"
+            ? labels.registerFailed
+            : labels.loginFailed
+      );
       return;
     }
 
@@ -241,6 +247,7 @@ function buildAuthLabels(language: "zh" | "en") {
         passwordRule: "密码必须大于 6 位。",
         passwordMismatch: "两次输入的密码不一致。",
         loginFailed: "账号或密码不正确，请检查后再试。",
+        emailUsed: "该邮箱已被使用，请更换邮箱。",
         registerFailed: "注册失败，请检查账号是否已经存在。",
         submitting: "处理中...",
       }
@@ -260,6 +267,7 @@ function buildAuthLabels(language: "zh" | "en") {
         passwordRule: "Password must be longer than 6 characters.",
         passwordMismatch: "The two passwords do not match.",
         loginFailed: "The account or password is incorrect.",
+        emailUsed: "This email is already in use. Please use another email.",
         registerFailed: "Registration failed. Please check whether the account already exists.",
         submitting: "Working...",
       };

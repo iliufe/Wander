@@ -76,3 +76,7 @@ async function submitAuth(
 
   return body.user;
 }
+
+export function isEmailAlreadyUsedError(error: unknown) {
+  return error instanceof Error && /already exists|already used|409/i.test(error.message);
+}
