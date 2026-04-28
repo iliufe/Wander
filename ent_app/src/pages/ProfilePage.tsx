@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import type { SavedAddress, UserGender, UserProfession } from "../types";
 import { useCopy, useLanguage } from "../i18n";
+import { searchStartPlacesWithApi, type StartPlaceSearchResult } from "../services/plans-api";
 import { useWander } from "../wander-state";
 
 const genderValues: UserGender[] = ["male", "female", "private"];
@@ -22,14 +24,11 @@ export function ProfilePage() {
   const { language, setLanguage } = useLanguage();
   const {
     location,
-    locationReady,
     userProfile,
     updateUserProfile,
     logout,
     savedAddresses,
     updateSavedAddress,
-    setSavedAddressFromCurrentLocation,
-    clearSavedAddress,
   } = useWander();
   const labels = buildProfileLabels(language);
 
@@ -151,12 +150,21 @@ export function ProfilePage() {
           <AddressCard
             key={item.id}
             address={item}
-            disabled={!locationReady}
-            currentAddress={location.formattedAddress || location.label}
+            locationContext={{
+              latitude: location.latitude,
+              longitude: location.longitude,
+              city: location.cityName || location.districtName,
+              adcode: location.adcode,
+            }}
             labels={labels}
-            onAddressChange={(address) => updateSavedAddress(item.id, { address })}
-            onUseCurrent={() => setSavedAddressFromCurrentLocation(item.id)}
-            onClear={() => clearSavedAddress(item.id)}
+            onSave={(place) =>
+              updateSavedAddress(item.id, {
+                label: item.label,
+                address: place.address || place.name,
+                latitude: place.latitude,
+                longitude: place.longitude,
+              })
+            }
           />
         ))}
       </section>
@@ -166,43 +174,134 @@ export function ProfilePage() {
 
 interface AddressCardProps {
   address: SavedAddress;
-  disabled: boolean;
-  currentAddress: string;
+  locationContext: {
+    latitude: number | null;
+    longitude: number | null;
+    city?: string | null;
+    adcode?: string | null;
+  };
   labels: ReturnType<typeof buildProfileLabels>;
-  onAddressChange: (address: string) => void;
-  onUseCurrent: () => void;
-  onClear: () => void;
+  onSave: (place: StartPlaceSearchResult) => void;
 }
 
-function AddressCard({
-  address,
-  disabled,
-  currentAddress,
-  labels,
-  onAddressChange,
-  onUseCurrent,
-  onClear,
-}: AddressCardProps) {
+function AddressCard({ address, locationContext, labels, onSave }: AddressCardProps) {
+  const [query, setQuery] = useState(address.address);
+  const [selectedPlace, setSelectedPlace] = useState<StartPlaceSearchResult | null>(null);
+  const [results, setResults] = useState<StartPlaceSearchResult[]>([]);
+  const [status, setStatus] = useState<"idle" | "loading" | "empty">("idle");
+
+  useEffect(() => {
+    setQuery(address.address);
+    setSelectedPlace(null);
+  }, [address.address]);
+
+  useEffect(() => {
+    const keyword = query.trim();
+    if (selectedPlace || keyword.length < 2) {
+      setResults([]);
+      setStatus("idle");
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setStatus("loading");
+    const timer = window.setTimeout(() => {
+      searchStartPlacesWithApi(
+        {
+          query: keyword,
+          latitude: locationContext.latitude,
+          longitude: locationContext.longitude,
+          city: locationContext.city,
+          adcode: locationContext.adcode,
+        },
+        controller.signal
+      )
+        .then((places) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setResults(places);
+          setStatus(places.length ? "idle" : "empty");
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setResults([]);
+            setStatus("empty");
+          }
+        });
+    }, 320);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [
+    locationContext.adcode,
+    locationContext.city,
+    locationContext.latitude,
+    locationContext.longitude,
+    query,
+    selectedPlace,
+  ]);
+
   return (
     <article className="saved-address-card">
       <div className="saved-address-head">
         <span>{address.label}</span>
         <strong>{address.address || labels.empty}</strong>
       </div>
-      <input
-        value={address.address}
-        onChange={(event) => onAddressChange(event.target.value)}
-        placeholder={labels.placeholder(address.label)}
-      />
+      <div className="ride-search-box saved-address-search">
+        <span className="ride-search-icon"></span>
+        <input
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setSelectedPlace(null);
+          }}
+          placeholder={labels.placeholder(address.label)}
+        />
+      </div>
+      {status === "loading" ? <div className="start-search-state">{labels.searching}</div> : null}
+      {status === "empty" && query.trim().length >= 2 ? (
+        <div className="start-search-state">{labels.noResults}</div>
+      ) : null}
+      {results.length ? (
+        <div className="start-result-list saved-address-results">
+          {results.map((place, index) => (
+            <button
+              className="start-result-item"
+              key={place.id}
+              type="button"
+              onClick={() => {
+                setSelectedPlace(place);
+                setQuery(place.name);
+                setResults([]);
+                setStatus("idle");
+              }}
+            >
+              <span className="start-result-pin">{index + 1}</span>
+              <span className="start-result-copy">
+                <strong>{place.name}</strong>
+                <small>{place.address || place.area}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="saved-address-actions">
-        <button type="button" onClick={onUseCurrent} disabled={disabled}>
-          {labels.useCurrent}
+        <button type="button" onClick={() => selectedPlace && onSave(selectedPlace)} disabled={!selectedPlace}>
+          {labels.save}
         </button>
-        <button type="button" onClick={() => onAddressChange(currentAddress)} disabled={disabled}>
-          {labels.fillCurrent}
-        </button>
-        <button type="button" onClick={onClear}>
-          {labels.clear}
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedPlace(null);
+            setQuery("");
+            setResults([]);
+            setStatus("idle");
+          }}
+        >
+          {labels.modify}
         </button>
       </div>
     </article>
@@ -212,8 +311,8 @@ function AddressCard({
 function buildProfileLabels(language: "zh" | "en") {
   return language === "zh"
     ? {
-        title: "个人资料",
-        name: "名字",
+        title: "个人中心",
+        name: "昵称",
         email: "邮箱",
         gender: "性别",
         profession: "职业",
@@ -221,10 +320,11 @@ function buildProfileLabels(language: "zh" | "en") {
         defaultAvatar: "使用默认头像",
         logout: "退出登录",
         empty: "未设置",
-        useCurrent: "保存当前定位",
-        fillCurrent: "填入当前位置",
-        clear: "清空",
-        placeholder: (label: string) => `输入${label}地址`,
+        save: "保存",
+        modify: "修改",
+        searching: "正在搜索地址...",
+        noResults: "没有找到匹配地址，请换个关键词。",
+        placeholder: (label: string) => `输入${label}地址关键词`,
         genderOptions: {
           male: "男",
           female: "女",
@@ -236,8 +336,8 @@ function buildProfileLabels(language: "zh" | "en") {
           engineer: "工程师",
           designer: "设计师",
           product: "产品经理",
-          marketing: "市场/运营",
-          finance: "金融/财务",
+          marketing: "市场 / 运营",
+          finance: "金融",
           healthcare: "医疗健康",
           service: "服务业",
           freelancer: "自由职业",
@@ -254,10 +354,11 @@ function buildProfileLabels(language: "zh" | "en") {
         defaultAvatar: "Use Default Avatar",
         logout: "Log Out",
         empty: "Not set",
-        useCurrent: "Save GPS",
-        fillCurrent: "Fill Current",
-        clear: "Clear",
-        placeholder: (label: string) => `Enter ${label} address`,
+        save: "Save",
+        modify: "Modify",
+        searching: "Searching addresses...",
+        noResults: "No matching address yet. Try another keyword.",
+        placeholder: (label: string) => `Enter ${label} address keyword`,
         genderOptions: {
           male: "Male",
           female: "Female",

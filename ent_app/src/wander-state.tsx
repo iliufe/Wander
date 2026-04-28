@@ -319,8 +319,11 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       timeBudgetMinutes: activeTimeBudgetMinutes,
       language: planningLanguage,
     });
+    const destinationOnly = destinationRoute
+      ? isSavedAddressOnlyPrompt(activePrompt, destinationRoute.destination.id)
+      : false;
 
-    if (destinationRoute) {
+    if (destinationRoute && destinationOnly) {
       setPlannedIntent({
         categories: ["destination"],
         searchTerms: [destinationRoute.destination.label, destinationRoute.destination.address],
@@ -375,17 +378,20 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         }
 
         setPlannedIntent(result.intent);
-        setPlannedRoutes(result.routes);
+        const routesWithDestination = destinationRoute
+          ? appendSavedAddressDestinationToRoutes(result.routes, destinationRoute.route.stops[0], planningLanguage)
+          : result.routes;
+        setPlannedRoutes(routesWithDestination);
         setLiveDataState(
           result.liveData || {
-            status: result.routes.length ? "live" : "empty",
+            status: routesWithDestination.length ? "live" : "empty",
             source: "amap",
             note:
               language === "zh"
                 ? "已完成真实路线生成。"
                 : "Real routes are ready.",
             radiusMeters: null,
-            poiCount: 0,
+            poiCount: destinationRoute ? 1 : 0,
           }
         );
         setLastGeneratedAt(new Date().toISOString());
@@ -1103,6 +1109,106 @@ function findSavedAddressDestination(prompt: string, savedAddresses: SavedAddres
   }
 
   return savedAddresses.find((address) => address.id === matchedId && address.latitude != null && address.longitude != null) || null;
+}
+
+function isSavedAddressOnlyPrompt(prompt: string, destinationId: SavedAddressId) {
+  const aliasMap: Record<SavedAddressId, string[]> = {
+    home: ["我要回家", "我想回家", "回家", "去家", "到家", "home", "go home"],
+    work: ["我要去公司", "我想去公司", "去公司", "回公司", "上班", "公司", "work", "office"],
+    school: ["我要去学校", "我想去学校", "去学校", "回学校", "上课", "学校", "school", "campus", "university"],
+  };
+  let normalized = prompt.trim().toLowerCase();
+  aliasMap[destinationId].forEach((alias) => {
+    normalized = normalized.replaceAll(alias.toLowerCase(), "");
+  });
+  normalized = normalized.replace(/[，。,.!?！？\s]/g, "");
+  normalized = normalized.replace(/^(我|想|要|去|到|然后|再|最后|顺路|一下)+/g, "");
+  return normalized.length === 0;
+}
+
+function appendSavedAddressDestinationToRoutes(
+  routes: RouteOption[],
+  destinationStop: RouteOption["stops"][number],
+  language: "zh" | "en"
+) {
+  return routes.map((route) => {
+    if (route.stops.some((stop) => stop.id === destinationStop.id)) {
+      return route;
+    }
+
+    const lastStop = route.stops[route.stops.length - 1];
+    const appendedStop = createDestinationStopFromPrevious(destinationStop, lastStop, language);
+    const stops = [...route.stops, appendedStop];
+    const totalMinutes = stops.reduce(
+      (sum, stop) => sum + stop.duration + (stop.travelMinutesFromPrevious || 0),
+      0
+    );
+
+    return {
+      ...route,
+      title:
+        language === "zh"
+          ? `${route.title} · 最后到${destinationStop.name}`
+          : `${route.title} · end at ${destinationStop.name}`,
+      stops,
+      hitCount: route.hitCount + 1,
+      totalMinutes,
+      bufferMinutes: Math.max(0, route.bufferMinutes - (appendedStop.travelMinutesFromPrevious || 0)),
+      routeGeometry: [
+        ...(route.routeGeometry || route.stops.map((stop) => [stop.longitude, stop.latitude] as [number, number])),
+        [destinationStop.longitude, destinationStop.latitude] as [number, number],
+      ],
+      routeDistanceMeters:
+        (route.routeDistanceMeters || 0) + (appendedStop.travelDistanceMetersFromPrevious || 0),
+      routeDurationMinutes:
+        (route.routeDurationMinutes || route.totalMinutes) + (appendedStop.travelMinutesFromPrevious || 0),
+    };
+  });
+}
+
+function createDestinationStopFromPrevious(
+  destinationStop: RouteOption["stops"][number],
+  previousStop: RouteOption["stops"][number] | undefined,
+  language: "zh" | "en"
+) {
+  if (!previousStop) {
+    return destinationStop;
+  }
+
+  const start = {
+    latitude: previousStop.latitude,
+    longitude: previousStop.longitude,
+  };
+  const end = {
+    latitude: destinationStop.latitude,
+    longitude: destinationStop.longitude,
+  };
+  const distanceMeters = distanceMetersBetweenCoordinates(start, end);
+  const walkingMinutes = Math.max(1, Math.round(distanceMeters / 75));
+  const ridingMinutes = Math.max(1, Math.round(distanceMeters / 220));
+  const drivingMinutes = Math.max(3, Math.round(distanceMeters / 450) + 5);
+  const travelModesFromPrevious = [
+    buildTravelModeEstimate("walking", walkingMinutes, distanceMeters, start, end, previousStop.name, destinationStop.name, language),
+    buildTravelModeEstimate("riding", ridingMinutes, distanceMeters, start, end, previousStop.name, destinationStop.name, language),
+    buildTravelModeEstimate("driving", drivingMinutes, distanceMeters, start, end, previousStop.name, destinationStop.name, language),
+  ];
+
+  return {
+    ...destinationStop,
+    travelFromPrevious: buildTravelModeLabel("driving", drivingMinutes, distanceMeters, language),
+    travelMinutesFromPrevious: drivingMinutes,
+    travelDistanceMetersFromPrevious: distanceMeters,
+    travelModesFromPrevious,
+    navigationUrls: {
+      walking: travelModesFromPrevious[0].navigationUrl,
+      riding: travelModesFromPrevious[1].navigationUrl,
+      driving: travelModesFromPrevious[2].navigationUrl,
+    },
+    summary:
+      language === "zh"
+        ? `完成前面的安排后，最后前往${destinationStop.name}。`
+        : `After the earlier stops, end the route at ${destinationStop.name}.`,
+  };
 }
 
 function buildSavedAddressLabel(id: SavedAddressId, language: "zh" | "en") {
