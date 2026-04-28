@@ -149,7 +149,6 @@ function buildOnboardingLabels(language: "zh" | "en") {
   return language === "zh"
     ? {
         title: "完善你的 Wander 资料",
-        subtitle: "这些信息会显示在个人中心，并用于之后的路线偏好和社区分享。",
         nickname: "昵称",
         nicknamePlaceholder: "例如 Roxy",
         email: "账号",
@@ -180,7 +179,6 @@ function buildOnboardingLabels(language: "zh" | "en") {
       }
     : {
         title: "Set up your Wander profile",
-        subtitle: "These details will appear in Profile and later help with route preferences and community posts.",
         nickname: "Nickname",
         nicknamePlaceholder: "For example, Roxy",
         email: "Account",
