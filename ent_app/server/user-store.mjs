@@ -12,7 +12,6 @@ const passwordIterations = 120000;
 const passwordKeyLength = 32;
 const passwordDigest = "sha256";
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 14;
-const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || "";
 
 let databaseCache = null;
 let pgPool = null;
@@ -365,7 +364,7 @@ async function createPostgresSessionForUser(user) {
 async function getPostgresPool() {
   if (!pgPool) {
     pgPool = new pg.Pool({
-      connectionString: databaseUrl,
+      connectionString: getDatabaseUrl(),
       ssl: shouldUsePostgresSsl() ? { rejectUnauthorized: false } : undefined,
       max: Number(process.env.POSTGRES_POOL_MAX || 5),
     });
@@ -426,7 +425,7 @@ function mapPostgresUser(row) {
 }
 
 function hasPostgres() {
-  return Boolean(databaseUrl);
+  return Boolean(getDatabaseUrl());
 }
 
 function shouldUsePostgresSsl() {
@@ -434,7 +433,11 @@ function shouldUsePostgresSsl() {
     return false;
   }
 
-  return databaseUrl.includes("render.com") || process.env.NODE_ENV === "production";
+  return getDatabaseUrl().includes("render.com") || process.env.NODE_ENV === "production";
+}
+
+function getDatabaseUrl() {
+  return process.env.DATABASE_URL || process.env.POSTGRES_URL || "";
 }
 
 function readDatabase() {
