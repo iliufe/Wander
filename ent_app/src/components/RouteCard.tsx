@@ -45,11 +45,6 @@ export function RouteCard({
       </div>
       <div className="route-flags">
         <span className="status-chip">{route.clusterAccent}</span>
-        {route.adjustments.map((item) => (
-          <span className="route-flag warning" key={item}>
-            {item}
-          </span>
-        ))}
       </div>
       <div className="stop-preview">
         {route.stops.map((stop, stopIndex) => (
