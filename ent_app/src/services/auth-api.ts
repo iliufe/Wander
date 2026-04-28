@@ -37,6 +37,13 @@ export async function loginAccount(payload: {
   return submitAuth("/api/auth/login", payload, "Login failed");
 }
 
+export async function resetAccountPassword(payload: {
+  email: string;
+  password: string;
+}): Promise<UserProfile> {
+  return submitAuth("/api/auth/reset-password", payload, "Password reset failed");
+}
+
 export async function updateAccountProfile(
   profile: Partial<Omit<UserProfile, "isAuthenticated" | "password">>
 ): Promise<UserProfile> {
@@ -71,12 +78,30 @@ async function submitAuth(
 
   const body = (await response.json()) as AuthResponse;
   if (!response.ok || !body.ok || !body.user) {
-    throw new Error(body.note || fallback);
+    throw new AuthRequestError(body.note || fallback, response.status);
   }
 
   return body.user;
 }
 
 export function isEmailAlreadyUsedError(error: unknown) {
-  return error instanceof Error && /already exists|already used|409/i.test(error.message);
+  return error instanceof AuthRequestError
+    ? error.statusCode === 409
+    : error instanceof Error && /already exists|already used/i.test(error.message);
+}
+
+export function isAccountNotFoundError(error: unknown) {
+  return error instanceof AuthRequestError
+    ? error.statusCode === 404
+    : error instanceof Error && /not found|does not exist/i.test(error.message);
+}
+
+class AuthRequestError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = "AuthRequestError";
+    this.statusCode = statusCode;
+  }
 }

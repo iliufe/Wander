@@ -19,9 +19,11 @@ import {
 import {
   fetchCurrentUser,
   isEmailAlreadyUsedError,
+  isAccountNotFoundError,
   loginAccount,
   logoutAccount,
   registerAccount,
+  resetAccountPassword,
   updateAccountProfile,
 } from "./services/auth-api";
 import { formatLocalizedGenerationLabel } from "./wander-copy";
@@ -50,7 +52,7 @@ type OpenedStop = {
 
 export type AuthActionResult = {
   ok: boolean;
-  reason?: "email-used" | "invalid";
+  reason?: "email-used" | "not-found" | "invalid";
 };
 
 interface WanderContextValue {
@@ -80,6 +82,7 @@ interface WanderContextValue {
   userProfile: UserProfile;
   login: (payload: { email: string; name?: string; password: string }) => Promise<AuthActionResult>;
   register: (payload: { email: string; name: string; password: string }) => Promise<AuthActionResult>;
+  resetPassword: (payload: { email: string; password: string }) => Promise<AuthActionResult>;
   logout: () => void;
   updateUserProfile: (profile: Partial<Omit<UserProfile, "isAuthenticated" | "password">>) => Promise<void>;
   savedAddresses: SavedAddress[];
@@ -752,6 +755,15 @@ export function WanderProvider({ children }: { children: ReactNode }) {
           return { ok: true };
         } catch (error) {
           return { ok: false, reason: isEmailAlreadyUsedError(error) ? "email-used" : "invalid" };
+        }
+      },
+      resetPassword: async ({ email, password }) => {
+        try {
+          const user = await resetAccountPassword({ email, password });
+          setUserProfile(normalizeRemoteUser(user));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, reason: isAccountNotFoundError(error) ? "not-found" : "invalid" };
         }
       },
       logout: () => {
