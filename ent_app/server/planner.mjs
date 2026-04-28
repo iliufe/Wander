@@ -512,7 +512,14 @@ export async function generatePlans({
   qwenConfig,
 }) {
   const amapConfig = getAmapConfig();
-  const locationSnapshot = await reverseGeocodeWithAmap(coordinates, amapConfig);
+  const locationSnapshot = await withTimeout(
+    reverseGeocodeWithAmap(coordinates, amapConfig),
+    Number(process.env.WANDER_AMAP_REVERSE_TIMEOUT_MS || 5000),
+    "AMap reverse geocode request timed out"
+  ).catch((error) => {
+    console.warn("[wander] reverse geocode fallback", error instanceof Error ? error.message : error);
+    return buildFallbackLocationSnapshot(coordinates, locationLabel, language);
+  });
   const weatherSnapshot = await withTimeout(
     fetchWeatherWithAmap(locationSnapshot.adcode, amapConfig),
     2500,
@@ -2185,6 +2192,26 @@ function buildLiveDataNote({ routesFound, candidateCount, radiusMeters, language
 
 function buildSearchRadius(timeBudgetMinutes) {
   return Math.min(10000, Math.max(2500, Math.round(timeBudgetMinutes * 26)));
+}
+
+function buildFallbackLocationSnapshot(coordinates, locationLabel, language) {
+  const fallbackLabel =
+    normalizeLine(locationLabel) ||
+    (language === "zh" ? "当前位置附近" : "Current location area");
+
+  return {
+    nearbyPlaceName: fallbackLabel,
+    formattedAddress: fallbackLabel,
+    cityName: null,
+    districtName: null,
+    adcode: null,
+    aoiName: null,
+    poiName: null,
+    buildingName: null,
+    roadName: null,
+    latitude: coordinates.latitude,
+    longitude: coordinates.longitude,
+  };
 }
 
 function buildFallbackLeg(origin, destination) {

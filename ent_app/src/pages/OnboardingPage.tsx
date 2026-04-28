@@ -44,7 +44,7 @@ export function OnboardingPage() {
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const safeName = name.trim();
 
     if (!safeName) {
@@ -52,7 +52,7 @@ export function OnboardingPage() {
       return;
     }
 
-    updateUserProfile({
+    await updateUserProfile({
       name: safeName,
       gender,
       profession,

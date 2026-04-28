@@ -10,6 +10,16 @@ import {
   searchPlacesWithAmap,
 } from "./amap.mjs";
 import { generatePlans } from "./planner.mjs";
+import {
+  createPublicError,
+  deleteSession,
+  getUserBySessionToken,
+  getUserStoreMode,
+  loginUser,
+  registerUser,
+  toPublicUser,
+  updateUserProfileBySession,
+} from "./user-store.mjs";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(currentDir, "..");
@@ -30,6 +40,7 @@ const qwenIntentModel = process.env.QWEN_INTENT_MODEL || "qwen-plus";
 const basicAuthUser = process.env.WANDER_BASIC_AUTH_USER || "";
 const basicAuthPassword = process.env.WANDER_BASIC_AUTH_PASSWORD || "";
 const basicAuthEnabled = Boolean(basicAuthUser && basicAuthPassword);
+const sessionCookieName = "wander_session";
 
 const server = createServer(async (request, response) => {
   try {
@@ -55,12 +66,19 @@ const server = createServer(async (request, response) => {
         qwenConfigured: Boolean(dashScopeApiKey),
         amapConfigured: Boolean(amapConfig.key),
         frontendBuilt: existsSync(indexHtmlPath),
+        authApi: true,
+        userStore: getUserStoreMode(),
       });
       return;
     }
 
     if (!isInternalRequestAuthorized(request)) {
       respondBasicAuthRequired(response);
+      return;
+    }
+
+    if (url.pathname.startsWith("/api/auth/")) {
+      await handleAuthRequest({ request, response, method, pathname: url.pathname });
       return;
     }
 
@@ -213,15 +231,19 @@ const server = createServer(async (request, response) => {
 
     respondJson(response, 404, { ok: false, note: "Endpoint not found." });
   } catch (error) {
+    const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+    const note =
+      error?.publicMessage ||
+      (error instanceof Error ? error.message : "Unexpected server error.");
     console.error("[wander] request failed", {
       url: request.url,
       method: request.method,
-      message: error instanceof Error ? error.message : String(error),
+      message: note,
       stack: error instanceof Error ? error.stack : undefined,
     });
-    respondJson(response, 500, {
+    respondJson(response, statusCode, {
       ok: false,
-      note: error instanceof Error ? error.message : "Unexpected server error.",
+      note,
     });
   }
 });
@@ -233,6 +255,70 @@ server.listen(port, () => {
     console.log("[wander] frontend build missing. Run `npm run build` before `npm start`.");
   }
 });
+
+async function handleAuthRequest({ request, response, method, pathname }) {
+  if (method === "GET" && pathname === "/api/auth/session") {
+    const user = await getUserBySessionToken(readSessionToken(request));
+    respondJson(response, 200, {
+      ok: true,
+      user: toPublicUser(user),
+    });
+    return;
+  }
+
+  if (method === "POST" && pathname === "/api/auth/register") {
+    const body = await readJsonBody(request);
+    const session = await registerUser({
+      email: body.email,
+      password: body.password,
+      name: body.name,
+    });
+    setSessionCookie(response, request, session.token);
+    respondJson(response, 200, {
+      ok: true,
+      user: toPublicUser(session.user),
+    });
+    return;
+  }
+
+  if (method === "POST" && pathname === "/api/auth/login") {
+    const body = await readJsonBody(request);
+    const session = await loginUser({
+      email: body.email,
+      password: body.password,
+    });
+    setSessionCookie(response, request, session.token);
+    respondJson(response, 200, {
+      ok: true,
+      user: toPublicUser(session.user),
+    });
+    return;
+  }
+
+  if (method === "PATCH" && pathname === "/api/auth/profile") {
+    const token = readSessionToken(request);
+    if (!token) {
+      throw createPublicError("You need to sign in again.", 401);
+    }
+
+    const body = await readJsonBody(request);
+    const user = await updateUserProfileBySession(token, body);
+    respondJson(response, 200, {
+      ok: true,
+      user: toPublicUser(user),
+    });
+    return;
+  }
+
+  if (method === "POST" && pathname === "/api/auth/logout") {
+    await deleteSession(readSessionToken(request));
+    clearSessionCookie(response, request);
+    respondJson(response, 200, { ok: true });
+    return;
+  }
+
+  respondJson(response, 404, { ok: false, note: "Auth endpoint not found." });
+}
 
 function parseCoordinates(body) {
   const latitude = toNumber(body.latitude);
@@ -399,18 +485,20 @@ async function readJsonBody(request) {
 }
 
 function respondJson(response, statusCode, payload) {
-  response.writeHead(statusCode, {
+  const headers = {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
-  });
+  };
+  response.writeHead(statusCode, mergePendingHeaders(response, headers));
   response.end(JSON.stringify(payload));
 }
 
 function respondText(response, statusCode, message) {
-  response.writeHead(statusCode, {
+  const headers = {
     "Content-Type": "text/plain; charset=utf-8",
     "Cache-Control": "no-store",
-  });
+  };
+  response.writeHead(statusCode, mergePendingHeaders(response, headers));
   response.end(message);
 }
 
@@ -420,17 +508,76 @@ function respondEmpty(response, statusCode) {
 }
 
 function respondBasicAuthRequired(response) {
-  response.writeHead(401, {
+  const headers = {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
     "WWW-Authenticate": 'Basic realm="Wander Internal Test", charset="UTF-8"',
-  });
+  };
+  response.writeHead(401, mergePendingHeaders(response, headers));
   response.end(
     JSON.stringify({
       ok: false,
       note: "Internal test access is protected.",
     })
   );
+}
+
+function setSessionCookie(response, request, token) {
+  const secure = isSecureRequest(request);
+  setPendingHeader(
+    response,
+    "Set-Cookie",
+    `${sessionCookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 14}${secure ? "; Secure" : ""}`
+  );
+}
+
+function clearSessionCookie(response, request) {
+  const secure = isSecureRequest(request);
+  setPendingHeader(
+    response,
+    "Set-Cookie",
+    `${sessionCookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? "; Secure" : ""}`
+  );
+}
+
+function readSessionToken(request) {
+  const cookies = parseCookies(request.headers.cookie || "");
+  return cookies[sessionCookieName] || "";
+}
+
+function parseCookies(header) {
+  const result = {};
+  header.split(";").forEach((part) => {
+    const separatorIndex = part.indexOf("=");
+    if (separatorIndex < 0) {
+      return;
+    }
+
+    const key = part.slice(0, separatorIndex).trim();
+    const value = part.slice(separatorIndex + 1).trim();
+    if (key) {
+      result[key] = decodeURIComponent(value);
+    }
+  });
+  return result;
+}
+
+function setPendingHeader(response, key, value) {
+  response.__wanderHeaders = {
+    ...(response.__wanderHeaders || {}),
+    [key]: value,
+  };
+}
+
+function mergePendingHeaders(response, headers) {
+  return {
+    ...(response.__wanderHeaders || {}),
+    ...headers,
+  };
+}
+
+function isSecureRequest(request) {
+  return request.headers["x-forwarded-proto"] === "https" || request.socket?.encrypted;
 }
 
 function isInternalRequestAuthorized(request) {

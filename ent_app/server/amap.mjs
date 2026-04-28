@@ -260,11 +260,32 @@ async function amapRequest(pathname, params, config) {
   });
   searchParams.set("key", config.key);
 
-  const response = await fetch(`${config.baseUrl}${pathname}?${searchParams.toString()}`, {
-    headers: {
-      Accept: "application/json",
-    },
-  });
+  const url = `${config.baseUrl}${pathname}?${searchParams.toString()}`;
+  const maxAttempts = Number(process.env.AMAP_REQUEST_RETRIES || 2);
+  const timeoutMs = Number(process.env.AMAP_REQUEST_TIMEOUT_MS || 7000);
+  let response = null;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      response = await fetch(url, {
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: {
+          Accept: "application/json",
+        },
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts - 1) {
+        await sleep(180 * (attempt + 1));
+      }
+    }
+  }
+
+  if (!response) {
+    throw lastError || new Error("AMap request failed");
+  }
 
   if (!response.ok) {
     throw new Error(`AMap request failed: ${response.status}`);
@@ -276,6 +297,10 @@ async function amapRequest(pathname, params, config) {
   }
 
   return payload;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeAmapPoi(poi, origin) {

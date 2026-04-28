@@ -80,8 +80,36 @@ Required production env vars:
 - `VITE_AMAP_SECURITY_JSCODE`
 - `WANDER_BASIC_AUTH_USER` optional, recommended for internal testing
 - `WANDER_BASIC_AUTH_PASSWORD` optional, recommended for internal testing
+- `DATABASE_URL` recommended PostgreSQL connection string for user accounts
+- `POSTGRES_SSL=true` recommended for hosted PostgreSQL
+- `WANDER_USER_DB_PATH=./data/wander-users.json` optional local fallback when `DATABASE_URL` is not set
 
 If your platform provides `PORT`, `server/index.mjs` will use it automatically.
+
+## User Database
+
+Wander now has backend auth endpoints and a server-side user database:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/session`
+- `PATCH /api/auth/profile`
+- `POST /api/auth/logout`
+
+Passwords are stored as PBKDF2 hashes, not plain text, and the browser receives an HttpOnly session cookie.
+
+For production, set `DATABASE_URL` to your PostgreSQL connection string. Wander will create these tables automatically on first use:
+
+- `wander_users`
+- `wander_sessions`
+
+For local development without PostgreSQL, Wander falls back to this file:
+
+```text
+data/wander-users.json
+```
+
+This `data/` folder is ignored by Git so user accounts are not committed. For Render, create a Render PostgreSQL database and copy its internal connection string into the web service environment variable `DATABASE_URL`. Keep `POSTGRES_SSL=true` unless your provider explicitly says SSL is not needed.
 
 ## Deploy To Render
 
