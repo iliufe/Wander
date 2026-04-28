@@ -2994,6 +2994,29 @@ body {
   opacity: 0.42;
 }
 
+.route-add-stop-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px dashed rgba(16, 23, 33, 0.14);
+}
+
+.route-add-results {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.timeline-stop {
+  cursor: grab;
+}
+
+.timeline-stop.is-dragging {
+  opacity: 0.58;
+  outline: 2px solid rgba(23, 50, 70, 0.22);
+}
+
 .leg-modes {
   display: grid;
   gap: 10px;
