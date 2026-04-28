@@ -73,6 +73,7 @@ interface WanderContextValue {
     amapId?: string | null;
   }) => void;
   generationLabel: string;
+  generationProgress: number;
   liveDataState: LiveDataState;
   openDataEnabled: boolean;
   timeSelection: TimeSelection;
@@ -201,6 +202,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
   const [plannedRoutes, setPlannedRoutes] = useState<RouteOption[]>(() => stored?.plannedRoutes || []);
   const [plannedIntent, setPlannedIntent] = useState<IntentSignals | null>(() => stored?.plannedIntent || null);
   const [generationRunId, setGenerationRunId] = useState(0);
+  const [generationProgress, setGenerationProgress] = useState(0);
   const [planningLanguage, setPlanningLanguage] = useState(language);
   const locationWatchIdRef = useRef<number | null>(null);
   const locationWatchTimeoutRef = useRef<number | null>(null);
@@ -306,6 +308,18 @@ export function WanderProvider({ children }: { children: ReactNode }) {
   }, [routes]);
 
   useEffect(() => {
+    if (liveDataState.status !== "loading") {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      setGenerationProgress((current) => Math.min(99, Math.max(8, current) + 1));
+    }, 180);
+
+    return () => window.clearInterval(timer);
+  }, [liveDataState.status]);
+
+  useEffect(() => {
     if (generationRunId === 0) {
       return;
     }
@@ -349,6 +363,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         stopSignals: [],
       });
       setPlannedRoutes([destinationRoute.route]);
+      setGenerationProgress(100);
       setLiveDataState({
         status: "live",
         source: "amap",
@@ -397,6 +412,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
           ? appendSavedAddressDestinationToRoutes(result.routes, destinationRoute.route.stops[0], planningLanguage)
           : result.routes;
         setPlannedRoutes(routesWithDestination);
+        setGenerationProgress(100);
         setLiveDataState(
           result.liveData || {
             status: routesWithDestination.length ? "live" : "empty",
@@ -436,6 +452,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
 
         setPlannedIntent(null);
         setPlannedRoutes([]);
+        setGenerationProgress(0);
         const errorNote = buildGenerationErrorNote(error, planningLanguage);
         setLiveDataState({
           status: "error",
@@ -752,6 +769,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       selectStartCoordinates,
       selectStartPlace,
       generationLabel,
+      generationProgress,
       liveDataState,
       openDataEnabled,
       timeSelection,
@@ -899,6 +917,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         setPlannedRoutes([]);
         setActiveTimeBudgetMinutes(selectedTimeMinutes);
         setPlanningLanguage(language);
+        setGenerationProgress(8);
         setActivePrompt(inputPrompt.trim() || cityDriftData.defaults.prompt);
         setGenerationRunId((current) => current + 1);
       },
@@ -944,6 +963,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       adjustmentState,
       canGenerate,
       generationLabel,
+      generationProgress,
       inputPrompt,
       language,
       liveDataState,

@@ -22,6 +22,7 @@ export function PlannerPanel() {
     canGenerate,
     commitPrompt,
     applyQuickPrompt,
+    generationProgress,
     liveDataState,
     routes,
   } = useWander();
@@ -29,57 +30,46 @@ export function PlannerPanel() {
   const copy = useCopy();
   const navigate = useNavigate();
   const labels = buildPlannerLabels(language);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [hasSeenActiveGeneration, setHasSeenActiveGeneration] = useState(false);
   const [generationError, setGenerationError] = useState("");
   const [startQuery, setStartQuery] = useState("");
   const [startResults, setStartResults] = useState<StartPlaceSearchResult[]>([]);
   const [startSearchStatus, setStartSearchStatus] = useState<"idle" | "loading" | "empty">("idle");
   const [startStatusText, setStartStatusText] = useState("");
-  const showGenerating = isGenerating || liveDataState.status === "loading";
+  const showGenerating =
+    generationProgress > 0 &&
+    generationProgress < 100 &&
+    liveDataState.status !== "error" &&
+    !routes.length;
 
   useEffect(() => {
-    if (liveDataState.status === "loading") {
-      setIsGenerating(true);
-      setProgress((current) => Math.max(current, 8));
+    if (showGenerating) {
+      setHasSeenActiveGeneration(true);
       setGenerationError("");
     }
-  }, [liveDataState.status]);
+  }, [showGenerating]);
 
   useEffect(() => {
-    if (!showGenerating || liveDataState.status !== "loading") {
+    if (!hasSeenActiveGeneration || generationProgress < 100 || !routes.length) {
       return undefined;
     }
 
-    const timer = window.setInterval(() => {
-      setProgress((current) => Math.min(99, current + 1));
-    }, 180);
-
-    return () => window.clearInterval(timer);
-  }, [showGenerating, liveDataState.status]);
-
-  useEffect(() => {
-    if (!showGenerating || !routes.length) {
-      return undefined;
-    }
-
-    setProgress(100);
     const timer = window.setTimeout(() => {
-      setIsGenerating(false);
+      setHasSeenActiveGeneration(false);
       navigate("/routes");
     }, 520);
 
     return () => window.clearTimeout(timer);
-  }, [showGenerating, navigate, routes.length]);
+  }, [generationProgress, hasSeenActiveGeneration, navigate, routes.length]);
 
   useEffect(() => {
-    if (!showGenerating || liveDataState.status !== "error") {
+    if (!hasSeenActiveGeneration || liveDataState.status !== "error") {
       return;
     }
 
     setGenerationError(labels.generationFailed);
-    setIsGenerating(false);
-  }, [showGenerating, labels.generationFailed, liveDataState.status]);
+    setHasSeenActiveGeneration(false);
+  }, [hasSeenActiveGeneration, labels.generationFailed, liveDataState.status]);
 
   useEffect(() => {
     const query = startQuery.trim();
@@ -150,8 +140,7 @@ export function PlannerPanel() {
     }
 
     setGenerationError("");
-    setProgress(8);
-    setIsGenerating(true);
+    setHasSeenActiveGeneration(true);
     commitPrompt();
   };
 
@@ -263,10 +252,10 @@ export function PlannerPanel() {
           <div className="planner-loading-card" aria-live="polite">
             <div className="planner-loading-top">
               <span>{labels.generating}</span>
-              <strong>{progress}%</strong>
+              <strong>{generationProgress}%</strong>
             </div>
             <div className="planner-progress-track">
-              <div className="planner-progress-bar" style={{ width: `${progress}%` }}></div>
+              <div className="planner-progress-bar" style={{ width: `${generationProgress}%` }}></div>
             </div>
           </div>
         ) : null}
