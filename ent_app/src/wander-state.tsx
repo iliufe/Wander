@@ -15,6 +15,7 @@ import {
   describeLocationWithApi,
   generatePlansWithApi,
   type LocationDescribeResponse,
+  type StartPlaceSearchResult,
 } from "./services/plans-api";
 import {
   fetchCurrentUser,
@@ -96,7 +97,9 @@ interface WanderContextValue {
   setSelectedRouteId: (routeId: string) => void;
   selectedRoute: RouteOption | null;
   moveRouteStop: (routeId: string, stopId: string, direction: "up" | "down") => void;
+  moveRouteStopToIndex: (routeId: string, stopId: string, targetIndex: number) => void;
   removeRouteStop: (routeId: string, stopId: string) => void;
+  addRouteStopFromPlace: (routeId: string, place: StartPlaceSearchResult) => void;
   routeFit: string;
   adjustmentState: string;
   activeTemplateId: string | null;
@@ -117,6 +120,10 @@ type StoredState = {
   savedAddresses?: SavedAddress[];
   userProfile?: UserProfile;
   ugcReads?: number;
+  plannedRoutes?: RouteOption[];
+  plannedIntent?: IntentSignals | null;
+  selectedRouteId?: string | null;
+  lastGeneratedAt?: string;
 };
 
 type ReverseGeocodeSnapshot = LocationDescribeResponse;
@@ -187,12 +194,12 @@ export function WanderProvider({ children }: { children: ReactNode }) {
     createSavedAddresses(stored?.savedAddresses, language)
   );
   const [ugcReads, setUgcReads] = useState(stored?.ugcReads || 0);
-  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(stored?.selectedRouteId || null);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   const [openedStop, setOpenedStop] = useState<OpenedStop>(null);
-  const [lastGeneratedAt, setLastGeneratedAt] = useState(() => new Date().toISOString());
-  const [plannedRoutes, setPlannedRoutes] = useState<RouteOption[]>([]);
-  const [plannedIntent, setPlannedIntent] = useState<IntentSignals | null>(null);
+  const [lastGeneratedAt, setLastGeneratedAt] = useState(() => stored?.lastGeneratedAt || new Date().toISOString());
+  const [plannedRoutes, setPlannedRoutes] = useState<RouteOption[]>(() => stored?.plannedRoutes || []);
+  const [plannedIntent, setPlannedIntent] = useState<IntentSignals | null>(() => stored?.plannedIntent || null);
   const [generationRunId, setGenerationRunId] = useState(0);
   const [planningLanguage, setPlanningLanguage] = useState(language);
   const locationWatchIdRef = useRef<number | null>(null);
@@ -263,9 +270,13 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         savedAddresses,
         userProfile,
         ugcReads,
+        plannedRoutes,
+        plannedIntent,
+        selectedRouteId,
+        lastGeneratedAt,
       })
     );
-  }, [activeTimeBudgetMinutes, inputPrompt, location, savedAddresses, scenario, timeSelection, ugcReads, userProfile]);
+  }, [activeTimeBudgetMinutes, inputPrompt, lastGeneratedAt, location, plannedIntent, plannedRoutes, savedAddresses, scenario, selectedRouteId, timeSelection, ugcReads, userProfile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -846,6 +857,13 @@ export function WanderProvider({ children }: { children: ReactNode }) {
           )
         );
       },
+      moveRouteStopToIndex: (routeId, stopId, targetIndex) => {
+        setPlannedRoutes((current) =>
+          current.map((route) =>
+            route.id === routeId ? moveStopToIndex(route, stopId, targetIndex) : route
+          )
+        );
+      },
       removeRouteStop: (routeId, stopId) => {
         setPlannedRoutes((current) =>
           current.map((route) =>
@@ -854,6 +872,13 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         );
         setOpenedStop((current) =>
           current?.routeId === routeId && current.stopId === stopId ? null : current
+        );
+      },
+      addRouteStopFromPlace: (routeId, place) => {
+        setPlannedRoutes((current) =>
+          current.map((route) =>
+            route.id === routeId ? appendPlaceToRoute(route, place, language) : route
+          )
         );
       },
       routeFit,
@@ -916,6 +941,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       canGenerate,
       generationLabel,
       inputPrompt,
+      language,
       liveDataState,
       location,
       locationReady,
@@ -1240,9 +1266,78 @@ function reorderRouteStop(route: RouteOption, stopId: string, direction: "up" | 
   return normalizeEditedRoute({ ...route, stops });
 }
 
+function moveStopToIndex(route: RouteOption, stopId: string, targetIndex: number): RouteOption {
+  const currentIndex = route.stops.findIndex((stop) => stop.id === stopId);
+  const boundedTarget = Math.max(0, Math.min(route.stops.length - 1, targetIndex));
+  if (currentIndex < 0 || currentIndex === boundedTarget) {
+    return route;
+  }
+
+  const stops = [...route.stops];
+  const [stop] = stops.splice(currentIndex, 1);
+  stops.splice(boundedTarget, 0, stop);
+  return normalizeEditedRoute({ ...route, stops });
+}
+
 function removeStopFromRoute(route: RouteOption, stopId: string): RouteOption {
   const stops = route.stops.filter((stop) => stop.id !== stopId);
   return normalizeEditedRoute({ ...route, stops });
+}
+
+function appendPlaceToRoute(route: RouteOption, place: StartPlaceSearchResult, language: "zh" | "en"): RouteOption {
+  const stop = buildManualRouteStop(place, route.stops[route.stops.length - 1], language);
+  return normalizeEditedRoute({
+    ...route,
+    title: route.title,
+    stops: [...route.stops, stop],
+    hitCount: route.hitCount + 1,
+  });
+}
+
+function buildManualRouteStop(
+  place: StartPlaceSearchResult,
+  previousStop: RouteOption["stops"][number] | undefined,
+  language: "zh" | "en"
+): RouteOption["stops"][number] {
+  const baseStop: RouteOption["stops"][number] = {
+    id: `manual-${place.id}-${Date.now()}`,
+    name: place.name,
+    cluster: "live",
+    area: place.area || place.address || place.name,
+    address: place.address || place.area || place.name,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    categories: ["manual"],
+    requestedCategory: "manual",
+    duration: 30,
+    outdoor: false,
+    rating: 4.6,
+    hours: language === "zh" ? "用户添加地点" : "Added by user",
+    crowd: "",
+    summary:
+      language === "zh"
+        ? "这是用户手动加入路线的地点，可继续拖拽调整顺序。"
+        : "This stop was added manually and can be reordered.",
+    tags: [language === "zh" ? "手动添加" : "Manual"],
+    sourceType: "amap-live",
+    sourceLabel: "AMap",
+    distanceFromStartMeters: place.distanceMeters,
+    amapId: place.amapId,
+    visitLabel: language === "zh" ? "建议停留 20-40 分钟" : "Suggested stay 20-40 min",
+    ugc: {
+      author: "Wander",
+      verified: language === "zh" ? "用户添加" : "User added",
+      title: place.name,
+      stay: language === "zh" ? "按需停留" : "Stay as needed",
+      tip: language === "zh" ? "可拖拽调整到合适的路线顺序。" : "Drag it into the right place in your route.",
+    },
+  };
+
+  if (!previousStop) {
+    return baseStop;
+  }
+
+  return createDestinationStopFromPrevious(baseStop, previousStop, language);
 }
 
 function normalizeEditedRoute(route: RouteOption): RouteOption {

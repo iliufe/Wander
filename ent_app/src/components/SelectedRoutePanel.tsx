@@ -1,5 +1,6 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { getLocalizedCategoryLabel, useCopy, useLanguage } from "../i18n";
+import { searchStartPlacesWithApi, type StartPlaceSearchResult } from "../services/plans-api";
 import type { RouteMode, RouteStop } from "../types";
 import { useWander } from "../wander-state";
 
@@ -18,12 +19,68 @@ export function SelectedRoutePanel() {
     openStop,
     location,
     moveRouteStop,
+    moveRouteStopToIndex,
     removeRouteStop,
+    addRouteStopFromPlace,
   } = useWander();
   const { language } = useLanguage();
   const copy = useCopy();
   const detailCopy = buildDetailCopy(language);
-  const editCopy = buildRouteEditCopy(language);
+  const editCopy = buildRouteEditCopyV2(language);
+  const [draggedStopId, setDraggedStopId] = useState<string | null>(null);
+  const [addQuery, setAddQuery] = useState("");
+  const [addResults, setAddResults] = useState<StartPlaceSearchResult[]>([]);
+  const [addStatus, setAddStatus] = useState<"idle" | "loading" | "empty">("idle");
+
+  useEffect(() => {
+    const query = addQuery.trim();
+    if (!selectedRoute || query.length < 2) {
+      setAddResults([]);
+      setAddStatus("idle");
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setAddStatus("loading");
+    const timer = window.setTimeout(() => {
+      searchStartPlacesWithApi(
+        {
+          query,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          city: location.cityName || location.districtName,
+          adcode: location.adcode,
+        },
+        controller.signal
+      )
+        .then((places) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setAddResults(places);
+          setAddStatus(places.length ? "idle" : "empty");
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setAddResults([]);
+            setAddStatus("empty");
+          }
+        });
+    }, 320);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [
+    addQuery,
+    location.adcode,
+    location.cityName,
+    location.districtName,
+    location.latitude,
+    location.longitude,
+    selectedRoute,
+  ]);
 
   if (!selectedRoute) {
     const hasRoutes = routes.length > 0;
@@ -114,9 +171,69 @@ export function SelectedRoutePanel() {
 
         <section className="timeline-card clean-route-card">
           <h3>{copy.routeDetail.timeline}</h3>
+          <div className="route-add-stop-card">
+            <strong>{editCopy.addStop}</strong>
+            <div className="ride-search-box">
+              <span className="ride-search-icon"></span>
+              <input
+                value={addQuery}
+                onChange={(event) => setAddQuery(event.target.value)}
+                placeholder={editCopy.addPlaceholder}
+              />
+            </div>
+            {addStatus === "loading" ? <div className="start-search-state">{editCopy.searching}</div> : null}
+            {addStatus === "empty" && addQuery.trim().length >= 2 ? (
+              <div className="start-search-state">{editCopy.noResults}</div>
+            ) : null}
+            {addResults.length ? (
+              <div className="start-result-list route-add-results">
+                {addResults.map((place, placeIndex) => (
+                  <button
+                    className="start-result-item"
+                    key={place.id}
+                    type="button"
+                    onClick={() => {
+                      addRouteStopFromPlace(selectedRoute.id, place);
+                      setAddQuery("");
+                      setAddResults([]);
+                      setAddStatus("idle");
+                    }}
+                  >
+                    <span className="start-result-pin">{placeIndex + 1}</span>
+                    <span className="start-result-copy">
+                      <strong>{place.name}</strong>
+                      <small>{place.address || place.area}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <div className="timeline">
             {selectedRoute.stops.map((stop, index) => (
-              <article className="timeline-stop" key={`${selectedRoute.id}-${stop.id}`}>
+              <article
+                className={`timeline-stop ${draggedStopId === stop.id ? "is-dragging" : ""}`}
+                draggable
+                key={`${selectedRoute.id}-${stop.id}`}
+                onDragStart={(event) => {
+                  setDraggedStopId(stop.id);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", stop.id);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const sourceStopId = draggedStopId || event.dataTransfer.getData("text/plain");
+                  if (sourceStopId) {
+                    moveRouteStopToIndex(selectedRoute.id, sourceStopId, index);
+                  }
+                  setDraggedStopId(null);
+                }}
+                onDragEnd={() => setDraggedStopId(null)}
+              >
                 <div className="stop-index">{index + 1}</div>
                 <div className="timeline-stop-body">
                   <div className="timeline-stop-head">
@@ -225,7 +342,8 @@ function buildDetailCopy(language: "zh" | "en") {
       };
 }
 
-function buildRouteEditCopy(language: "zh" | "en") {
+/*
+function _buildRouteEditCopyLegacy(language: "zh" | "en") {
   return language === "zh"
     ? {
         editRoute: "编辑路线",
@@ -238,6 +356,31 @@ function buildRouteEditCopy(language: "zh" | "en") {
         moveUp: "Move up",
         moveDown: "Move down",
         remove: "Remove",
+      };
+}
+*/
+
+function buildRouteEditCopyV2(language: "zh" | "en") {
+  return language === "zh"
+    ? {
+        editRoute: "编辑路线",
+        moveUp: "上移",
+        moveDown: "下移",
+        remove: "删除",
+        addStop: "添加地点",
+        addPlaceholder: "输入地点关键词，例如 加油站",
+        searching: "正在搜索地点...",
+        noResults: "没有找到匹配地点，请换个关键词。",
+      }
+    : {
+        editRoute: "Edit route",
+        moveUp: "Move up",
+        moveDown: "Move down",
+        remove: "Remove",
+        addStop: "Add stop",
+        addPlaceholder: "Search a place, e.g. gas station",
+        searching: "Searching places...",
+        noResults: "No matching place yet. Try another keyword.",
       };
 }
 

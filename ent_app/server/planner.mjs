@@ -847,6 +847,7 @@ async function buildRouteFromBlueprint({
     timeBudgetMinutes,
     weather,
     language,
+    preserveUserStops: routeIndex === 0,
   });
   if (!requestedStops.length) {
     return null;
@@ -928,7 +929,8 @@ async function buildRouteFromBlueprint({
   const requiredRouteCategories = new Set(Array.isArray(intent.categories) ? intent.categories : []);
   while (
     computed.totalMinutes > timeBudgetMinutes + 15 &&
-    computed.stops.length > minimumStops
+    computed.stops.length > minimumStops &&
+    routeIndex !== 0
   ) {
     if (!canTrimLastStop(selectedStops, requiredRouteCategories)) {
       break;
@@ -1039,7 +1041,9 @@ async function findCandidatesForStop({
     ...stopSignal.requiredTerms,
     ...stopSignal.searchTerms,
     ...(categoryFallbackTerms[stopSignal.category] ?? []),
-  ]).slice(0, 3);
+    buildCategoryLabel(stopSignal.category, "zh"),
+    buildCategoryLabel(stopSignal.category, "en"),
+  ]).slice(0, 6);
 
   const results = [];
   const nearbyBatches = await Promise.all(
@@ -1055,6 +1059,22 @@ async function findCandidatesForStop({
     )
   );
   results.push(...nearbyBatches.flat());
+
+  if (results.length < 3) {
+    const widerBatches = await Promise.all(
+      searchTerms.slice(0, 4).map((term) =>
+        searchWithCache({
+          term,
+          coordinates: currentOrigin,
+          radiusMeters: Math.round(radiusMeters * 2.2),
+          city,
+          searchCache,
+          amapConfig,
+        })
+      )
+    );
+    results.push(...widerBatches.flat());
+  }
 
   if (
     results.length < 6 &&
@@ -1262,6 +1282,7 @@ function normalizeBlueprintPayload(payload, language, prompt = "", timeBudgetMin
             timeBudgetMinutes,
             weather: "clear",
             language,
+            preserveUserStops: index === 0,
           }),
           title:
             route.title ||
@@ -1327,6 +1348,7 @@ function buildFallbackBlueprints(intent, language, timeBudgetMinutes) {
       timeBudgetMinutes,
       weather: "clear",
       language,
+      preserveUserStops: index === 0,
     }),
   }));
 }
@@ -1834,10 +1856,21 @@ function expandStopSignalsForBudget({
   timeBudgetMinutes,
   weather,
   language,
+  preserveUserStops = false,
 }) {
   const uniqueSignals = dedupeStopSignals(stopSignals);
   if (!uniqueSignals.length) {
     return uniqueSignals;
+  }
+
+  if (preserveUserStops) {
+    return uniqueSignals.map((signal) => ({
+      ...signal,
+      durationMinutes: Math.max(
+        getStopDurationBounds(signal.category).min,
+        signal.durationMinutes || defaultDurationForCategory(signal.category)
+      ),
+    }));
   }
 
   const targetStopCount = determineTargetStopCount(timeBudgetMinutes, uniqueSignals.length);
