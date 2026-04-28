@@ -2972,6 +2972,28 @@ body {
   font-size: 0.92rem;
 }
 
+.route-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.route-edit-actions button {
+  border: 1px solid rgba(16, 23, 33, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #173246;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 7px 11px;
+}
+
+.route-edit-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .leg-modes {
   display: grid;
   gap: 10px;
