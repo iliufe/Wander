@@ -36,9 +36,18 @@ export function PlannerPanel() {
   const [startResults, setStartResults] = useState<StartPlaceSearchResult[]>([]);
   const [startSearchStatus, setStartSearchStatus] = useState<"idle" | "loading" | "empty">("idle");
   const [startStatusText, setStartStatusText] = useState("");
+  const showGenerating = isGenerating || liveDataState.status === "loading";
 
   useEffect(() => {
-    if (!isGenerating || liveDataState.status !== "loading") {
+    if (liveDataState.status === "loading") {
+      setIsGenerating(true);
+      setProgress((current) => Math.max(current, 8));
+      setGenerationError("");
+    }
+  }, [liveDataState.status]);
+
+  useEffect(() => {
+    if (!showGenerating || liveDataState.status !== "loading") {
       return undefined;
     }
 
@@ -47,10 +56,10 @@ export function PlannerPanel() {
     }, 180);
 
     return () => window.clearInterval(timer);
-  }, [isGenerating, liveDataState.status]);
+  }, [showGenerating, liveDataState.status]);
 
   useEffect(() => {
-    if (!isGenerating || !routes.length) {
+    if (!showGenerating || !routes.length) {
       return undefined;
     }
 
@@ -61,16 +70,16 @@ export function PlannerPanel() {
     }, 520);
 
     return () => window.clearTimeout(timer);
-  }, [isGenerating, navigate, routes.length]);
+  }, [showGenerating, navigate, routes.length]);
 
   useEffect(() => {
-    if (!isGenerating || liveDataState.status !== "error") {
+    if (!showGenerating || liveDataState.status !== "error") {
       return;
     }
 
     setGenerationError(labels.generationFailed);
     setIsGenerating(false);
-  }, [isGenerating, labels.generationFailed, liveDataState.status]);
+  }, [showGenerating, labels.generationFailed, liveDataState.status]);
 
   useEffect(() => {
     const query = startQuery.trim();
@@ -136,7 +145,7 @@ export function PlannerPanel() {
   );
 
   const handleGenerate = () => {
-    if (!canGenerate || isGenerating) {
+    if (!canGenerate || showGenerating) {
       return;
     }
 
@@ -250,7 +259,7 @@ export function PlannerPanel() {
       <section className="planner-controls-panel">
         <TimeWheelPicker value={timeSelection} onChange={setTimeSelection} />
 
-        {isGenerating ? (
+        {showGenerating ? (
           <div className="planner-loading-card" aria-live="polite">
             <div className="planner-loading-top">
               <span>{labels.generating}</span>
@@ -268,9 +277,9 @@ export function PlannerPanel() {
           className="primary-button planner-submit"
           type="button"
           onClick={handleGenerate}
-          disabled={!canGenerate || isGenerating}
+          disabled={!canGenerate || showGenerating}
         >
-          {isGenerating ? labels.generatingShort : locationReady ? copy.planner.generate : copy.planner.needLocation}
+          {showGenerating ? labels.generatingShort : locationReady ? copy.planner.generate : copy.planner.needLocation}
         </button>
       </section>
     </section>
