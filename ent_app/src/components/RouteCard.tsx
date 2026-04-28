@@ -49,7 +49,7 @@ export function RouteCard({
         </span>
         <span className="meta-pill">{localizeTransitSummary(route, language)}</span>
         <span className="meta-pill">
-          {copy.routeCard.buffer} {route.bufferMinutes} min
+          {copy.routeCard.buffer} {route.bufferMinutes} {language === "zh" ? "\u5206\u949f" : "min"}
         </span>
       </div>
       <div className="route-flags">
@@ -62,7 +62,7 @@ export function RouteCard({
             <div>
               <strong>{localizeStopName(stop, language, stopIndex)}</strong>
               <span>
-                {[localizeStopAddress(stop, language), localizePlainText(stop.visitLabel, language, "Suggested visit")]
+                {[localizeStopAddress(stop, language), localizePlainText(stop.visitLabel, language, language === "zh" ? "\u5efa\u8bae\u505c\u7559" : "Suggested visit")]
                   .filter(Boolean)
                   .join(" · ")}
               </span>

@@ -56,7 +56,7 @@ export function AppLayout() {
             <NavLink
               aria-label={copy.layout.navProfile}
               className="account-chip avatar-only"
-              title={userProfile.isAuthenticated ? userProfile.name : language === "zh" ? "Login" : "Log in"}
+              title={userProfile.isAuthenticated ? userProfile.name : language === "zh" ? "\u767b\u5f55" : "Log in"}
               to={userProfile.isAuthenticated ? "/profile" : "/login"}
             >
               <span className="account-avatar">
