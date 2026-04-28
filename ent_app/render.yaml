@@ -14,6 +14,14 @@ services:
         value: https://dashscope.aliyuncs.com/compatible-mode/v1
       - key: QWEN_INTENT_MODEL
         value: qwen-plus
+      - key: WANDER_QWEN_BLUEPRINT_TIMEOUT_MS
+        value: 6500
+      - key: AMAP_REQUEST_TIMEOUT_MS
+        value: 3500
+      - key: AMAP_REQUEST_RETRIES
+        value: 1
+      - key: WANDER_MAX_SEARCH_TERMS_PER_STOP
+        value: 3
       - key: DASHSCOPE_API_KEY
         sync: false
       - key: AMAP_WEB_SERVICE_KEY

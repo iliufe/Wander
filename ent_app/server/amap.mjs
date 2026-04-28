@@ -261,8 +261,8 @@ async function amapRequest(pathname, params, config) {
   searchParams.set("key", config.key);
 
   const url = `${config.baseUrl}${pathname}?${searchParams.toString()}`;
-  const maxAttempts = Number(process.env.AMAP_REQUEST_RETRIES || 2);
-  const timeoutMs = Number(process.env.AMAP_REQUEST_TIMEOUT_MS || 7000);
+  const maxAttempts = Number(process.env.AMAP_REQUEST_RETRIES || 1);
+  const timeoutMs = Number(process.env.AMAP_REQUEST_TIMEOUT_MS || 3500);
   let response = null;
   let lastError = null;
 

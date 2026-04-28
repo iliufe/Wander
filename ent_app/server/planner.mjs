@@ -538,7 +538,7 @@ export async function generatePlans({
       weatherText: weatherSnapshot?.weatherText || null,
       qwenConfig,
     }),
-    Number(process.env.WANDER_QWEN_BLUEPRINT_TIMEOUT_MS || 18000),
+    Number(process.env.WANDER_QWEN_BLUEPRINT_TIMEOUT_MS || 6500),
     "Qwen blueprint request timed out"
   ).catch((error) => {
     console.warn("[wander] qwen blueprint fallback", error instanceof Error ? error.message : error);
@@ -646,7 +646,7 @@ async function planBlueprintsWithQwen({
 }) {
   const response = await fetch(`${qwenConfig.baseUrl}/chat/completions`, {
     method: "POST",
-    signal: AbortSignal.timeout(Number(process.env.WANDER_QWEN_BLUEPRINT_TIMEOUT_MS || 18000)),
+    signal: AbortSignal.timeout(Number(process.env.WANDER_QWEN_BLUEPRINT_TIMEOUT_MS || 6500)),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${qwenConfig.apiKey}`,
@@ -1037,13 +1037,14 @@ async function findCandidatesForStop({
   searchCache,
   amapConfig,
 }) {
+  const maxSearchTerms = clampNumber(process.env.WANDER_MAX_SEARCH_TERMS_PER_STOP, 1, 6, 3);
   const searchTerms = dedupe([
     ...stopSignal.requiredTerms,
     ...stopSignal.searchTerms,
     ...(categoryFallbackTerms[stopSignal.category] ?? []),
     buildCategoryLabel(stopSignal.category, "zh"),
     buildCategoryLabel(stopSignal.category, "en"),
-  ]).slice(0, 6);
+  ]).slice(0, maxSearchTerms);
 
   const results = [];
   const nearbyBatches = await Promise.all(
@@ -1062,7 +1063,7 @@ async function findCandidatesForStop({
 
   if (results.length < 3) {
     const widerBatches = await Promise.all(
-      searchTerms.slice(0, 4).map((term) =>
+      searchTerms.slice(0, Math.min(maxSearchTerms, 3)).map((term) =>
         searchWithCache({
           term,
           coordinates: currentOrigin,
@@ -1125,9 +1126,9 @@ async function searchWithCache({
   amapConfig,
 }) {
   const cacheKey = `${term}::${city}::${radiusMeters}::${roundCoordinate(coordinates.latitude)}::${roundCoordinate(coordinates.longitude)}`;
-  let items = searchCache.get(cacheKey);
-  if (!items) {
-    items = await searchPlacesWithAmap(
+  let cached = searchCache.get(cacheKey);
+  if (!cached) {
+    cached = searchPlacesWithAmap(
       {
         keywords: term,
         coordinates,
@@ -1137,6 +1138,11 @@ async function searchWithCache({
       },
       amapConfig
     ).catch(() => []);
+    searchCache.set(cacheKey, cached);
+  }
+
+  const items = await cached;
+  if (typeof cached?.then === "function") {
     searchCache.set(cacheKey, items);
   }
 
