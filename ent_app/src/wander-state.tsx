@@ -92,6 +92,8 @@ interface WanderContextValue {
   selectedRouteId: string | null;
   setSelectedRouteId: (routeId: string) => void;
   selectedRoute: RouteOption | null;
+  moveRouteStop: (routeId: string, stopId: string, direction: "up" | "down") => void;
+  removeRouteStop: (routeId: string, stopId: string) => void;
   routeFit: string;
   adjustmentState: string;
   activeTemplateId: string | null;
@@ -189,6 +191,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
   const [plannedRoutes, setPlannedRoutes] = useState<RouteOption[]>([]);
   const [plannedIntent, setPlannedIntent] = useState<IntentSignals | null>(null);
   const [generationRunId, setGenerationRunId] = useState(0);
+  const [planningLanguage, setPlanningLanguage] = useState(language);
   const locationWatchIdRef = useRef<number | null>(null);
   const locationWatchTimeoutRef = useRef<number | null>(null);
   const [liveDataState, setLiveDataState] = useState<LiveDataState>({
@@ -306,6 +309,36 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const destinationRoute = buildSavedAddressRoute({
+      prompt: activePrompt,
+      savedAddresses,
+      startLocation: location,
+      timeBudgetMinutes: activeTimeBudgetMinutes,
+      language: planningLanguage,
+    });
+
+    if (destinationRoute) {
+      setPlannedIntent({
+        categories: ["destination"],
+        searchTerms: [destinationRoute.destination.label, destinationRoute.destination.address],
+        requiredTermsByCategory: {},
+        preferredStyle: "efficient",
+        routeSummary: planningLanguage === "zh" ? "直接前往常用地址。" : "Direct route to a saved address.",
+        timePlanSummary: null,
+        stopSignals: [],
+      });
+      setPlannedRoutes([destinationRoute.route]);
+      setLiveDataState({
+        status: "live",
+        source: "amap",
+        note: planningLanguage === "zh" ? "已根据常用地址生成路线。" : "Route generated from your saved address.",
+        radiusMeters: null,
+        poiCount: 1,
+      });
+      setLastGeneratedAt(new Date().toISOString());
+      return;
+    }
+
     const controller = new AbortController();
     setPlannedIntent(null);
     setPlannedRoutes([]);
@@ -323,7 +356,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
     generatePlansWithApi(
       {
         prompt: activePrompt,
-        language,
+        language: planningLanguage,
         latitude: location.latitude,
         longitude: location.longitude,
         locationLabel: location.label,
@@ -362,7 +395,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
                   location.longitude as number,
                   current.accuracyMeters ?? 0,
                   result.location || undefined,
-                  language
+                  planningLanguage
                 )
               : current
           );
@@ -379,7 +412,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
 
         setPlannedIntent(null);
         setPlannedRoutes([]);
-        const errorNote = buildGenerationErrorNote(error, language);
+        const errorNote = buildGenerationErrorNote(error, planningLanguage);
         setLiveDataState({
           status: "error",
           source: "amap",
@@ -399,11 +432,12 @@ export function WanderProvider({ children }: { children: ReactNode }) {
     activePrompt,
     activeTimeBudgetMinutes,
     generationRunId,
-    language,
     location.label,
     location.latitude,
     location.longitude,
     locationReady,
+    planningLanguage,
+    savedAddresses,
     scenario.venue,
     scenario.weather,
   ]);
@@ -787,6 +821,23 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       selectedRouteId,
       setSelectedRouteId,
       selectedRoute,
+      moveRouteStop: (routeId, stopId, direction) => {
+        setPlannedRoutes((current) =>
+          current.map((route) =>
+            route.id === routeId ? reorderRouteStop(route, stopId, direction) : route
+          )
+        );
+      },
+      removeRouteStop: (routeId, stopId) => {
+        setPlannedRoutes((current) =>
+          current.map((route) =>
+            route.id === routeId ? removeStopFromRoute(route, stopId) : route
+          )
+        );
+        setOpenedStop((current) =>
+          current?.routeId === routeId && current.stopId === stopId ? null : current
+        );
+      },
       routeFit,
       adjustmentState,
       activeTemplateId,
@@ -800,6 +851,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         setPlannedIntent(null);
         setPlannedRoutes([]);
         setActiveTimeBudgetMinutes(selectedTimeMinutes);
+        setPlanningLanguage(language);
         setActivePrompt(inputPrompt.trim() || cityDriftData.defaults.prompt);
         setGenerationRunId((current) => current + 1);
       },
@@ -884,6 +936,307 @@ function selectionFromMinutes(totalMinutes: number): TimeSelection {
     hours: Math.floor(safeMinutes / 60),
     minutes: safeMinutes % 60,
   };
+}
+
+function buildSavedAddressRoute({
+  prompt,
+  savedAddresses,
+  startLocation,
+  timeBudgetMinutes,
+  language,
+}: {
+  prompt: string;
+  savedAddresses: SavedAddress[];
+  startLocation: DeviceLocation;
+  timeBudgetMinutes: number;
+  language: "zh" | "en";
+}): { route: RouteOption; destination: SavedAddress } | null {
+  if (startLocation.latitude == null || startLocation.longitude == null) {
+    return null;
+  }
+
+  const destination = findSavedAddressDestination(prompt, savedAddresses);
+  if (!destination || destination.latitude == null || destination.longitude == null) {
+    return null;
+  }
+
+  const start = {
+    latitude: startLocation.latitude,
+    longitude: startLocation.longitude,
+  };
+  const end = {
+    latitude: destination.latitude,
+    longitude: destination.longitude,
+  };
+  const distanceMeters = distanceMetersBetweenCoordinates(start, end);
+  const walkingMinutes = Math.max(1, Math.round(distanceMeters / 75));
+  const ridingMinutes = Math.max(1, Math.round(distanceMeters / 220));
+  const drivingMinutes = Math.max(3, Math.round(distanceMeters / 450) + 5);
+  const bestMinutes = Math.min(walkingMinutes, ridingMinutes, drivingMinutes);
+  const visitMinutes = 0;
+  const safeBudget = Math.max(timeBudgetMinutes, bestMinutes);
+  const destinationName = destination.label || buildSavedAddressLabel(destination.id, language);
+  const destinationAddress = destination.address || destinationName;
+  const navigationUrl = buildAmapNavigationUrl({
+    start,
+    startName: startLocation.label,
+    end,
+    endName: destinationName,
+    mode: "car",
+  });
+
+  const stop: RouteOption["stops"][number] = {
+    id: `saved-${destination.id}`,
+    name: destinationName,
+    cluster: "live",
+    area: destinationAddress,
+    address: destinationAddress,
+    latitude: destination.latitude,
+    longitude: destination.longitude,
+    categories: ["destination"],
+    requestedCategory: "destination",
+    duration: visitMinutes,
+    outdoor: false,
+    rating: 5,
+    hours: language === "zh" ? "常用地址" : "Saved address",
+    crowd: "",
+    summary:
+      language === "zh"
+        ? `从${startLocation.label}前往${destinationName}。`
+        : `Go from ${startLocation.label} to ${destinationName}.`,
+    tags: [language === "zh" ? "常用地址" : "Saved address"],
+    sourceType: "amap-live",
+    sourceLabel: "Saved address",
+    distanceFromStartMeters: distanceMeters,
+    visitLabel: language === "zh" ? "目的地" : "Destination",
+    travelFromPrevious: buildTravelModeLabel("driving", drivingMinutes, distanceMeters, language),
+    travelMinutesFromPrevious: drivingMinutes,
+    travelDistanceMetersFromPrevious: distanceMeters,
+    travelModesFromPrevious: [
+      buildTravelModeEstimate("walking", walkingMinutes, distanceMeters, start, end, startLocation.label, destinationName, language),
+      buildTravelModeEstimate("riding", ridingMinutes, distanceMeters, start, end, startLocation.label, destinationName, language),
+      buildTravelModeEstimate("driving", drivingMinutes, distanceMeters, start, end, startLocation.label, destinationName, language),
+    ],
+    navigationUrls: {
+      walking: buildAmapNavigationUrl({ start, startName: startLocation.label, end, endName: destinationName, mode: "walk" }),
+      riding: buildAmapNavigationUrl({ start, startName: startLocation.label, end, endName: destinationName, mode: "ride" }),
+      driving: navigationUrl,
+    },
+    ugc: {
+      author: "Wander",
+      verified: language === "zh" ? "用户常用地址" : "User saved address",
+      title: destinationName,
+      stay: language === "zh" ? "到达目的地" : "Arrive at destination",
+      tip: language === "zh" ? "可直接打开高德导航。" : "Open AMap navigation when ready.",
+    },
+  };
+
+  const routeModes = stop.travelModesFromPrevious || [];
+
+  return {
+    destination,
+    route: {
+      id: `saved-route-${destination.id}-${Date.now()}`,
+      clusterId: "live",
+      clusterLabel: language === "zh" ? "常用地址" : "Saved place",
+      clusterAccent: language === "zh" ? "直接导航" : "Direct navigation",
+      title: language === "zh" ? `去${destinationName}` : `Go to ${destinationName}`,
+      subtitle:
+        language === "zh"
+          ? `预计 ${bestMinutes} 分钟内可到达`
+          : `Estimated arrival in ${bestMinutes} min`,
+      style: "efficient",
+      fitScore: 100,
+      totalMinutes: bestMinutes,
+      bufferMinutes: Math.max(0, safeBudget - bestMinutes),
+      hitCount: 1,
+      stops: [stop],
+      adjustments: [],
+      summary:
+        language === "zh"
+          ? `已识别你要前往${destinationName}，路线从当前位置直接出发。`
+          : `Wander recognized ${destinationName} as your destination and built a direct route.`,
+      transitSummary: routeModes.map((mode) => mode.label).join(" · "),
+      routeModes,
+      navigationUrl,
+      routeGeometry: [
+        [start.longitude, start.latitude],
+        [end.longitude, end.latitude],
+      ],
+      routeDistanceMeters: distanceMeters,
+      routeDurationMinutes: bestMinutes,
+      routeMode: "driving",
+    },
+  };
+}
+
+function findSavedAddressDestination(prompt: string, savedAddresses: SavedAddress[]) {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const aliasMap: Record<SavedAddressId, string[]> = {
+    home: ["回家", "去家", "到家", "home", "go home"],
+    work: ["去公司", "回公司", "上班", "公司", "work", "office"],
+    school: ["去学校", "回学校", "上课", "学校", "school", "campus", "university"],
+  };
+
+  const matchedId = (Object.keys(aliasMap) as SavedAddressId[]).find((id) =>
+    aliasMap[id].some((alias) => normalized.includes(alias.toLowerCase()))
+  );
+
+  if (!matchedId) {
+    return null;
+  }
+
+  return savedAddresses.find((address) => address.id === matchedId && address.latitude != null && address.longitude != null) || null;
+}
+
+function buildSavedAddressLabel(id: SavedAddressId, language: "zh" | "en") {
+  if (language === "zh") {
+    if (id === "home") return "家";
+    if (id === "work") return "公司";
+    return "学校";
+  }
+
+  if (id === "home") return "Home";
+  if (id === "work") return "Work";
+  return "School";
+}
+
+function reorderRouteStop(route: RouteOption, stopId: string, direction: "up" | "down"): RouteOption {
+  const currentIndex = route.stops.findIndex((stop) => stop.id === stopId);
+  if (currentIndex < 0) {
+    return route;
+  }
+
+  const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+  if (targetIndex < 0 || targetIndex >= route.stops.length) {
+    return route;
+  }
+
+  const stops = [...route.stops];
+  const [stop] = stops.splice(currentIndex, 1);
+  stops.splice(targetIndex, 0, stop);
+  return normalizeEditedRoute({ ...route, stops });
+}
+
+function removeStopFromRoute(route: RouteOption, stopId: string): RouteOption {
+  const stops = route.stops.filter((stop) => stop.id !== stopId);
+  return normalizeEditedRoute({ ...route, stops });
+}
+
+function normalizeEditedRoute(route: RouteOption): RouteOption {
+  const totalMinutes = route.stops.reduce(
+    (sum, stop) => sum + stop.duration + (stop.travelMinutesFromPrevious || 0),
+    0
+  );
+
+  return {
+    ...route,
+    stops: route.stops,
+    totalMinutes,
+    bufferMinutes: Math.max(0, route.bufferMinutes),
+    hitCount: route.stops.length,
+    routeGeometry: route.stops.map((stop) => [stop.longitude, stop.latitude] as [number, number]),
+  };
+}
+
+function buildTravelModeEstimate(
+  mode: "walking" | "riding" | "driving",
+  durationMinutes: number,
+  distanceMeters: number,
+  start: { latitude: number; longitude: number },
+  end: { latitude: number; longitude: number },
+  startName: string,
+  endName: string,
+  language: "zh" | "en"
+) {
+  const amapMode = mode === "walking" ? "walk" : mode === "riding" ? "ride" : "car";
+
+  return {
+    mode,
+    label: buildTravelModeLabel(mode, durationMinutes, distanceMeters, language),
+    durationMinutes,
+    distanceMeters,
+    navigationUrl: buildAmapNavigationUrl({ start, startName, end, endName, mode: amapMode }),
+  };
+}
+
+function buildTravelModeLabel(
+  mode: "walking" | "riding" | "driving",
+  durationMinutes: number,
+  distanceMeters: number,
+  language: "zh" | "en"
+) {
+  const modeLabel =
+    language === "zh"
+      ? mode === "walking"
+        ? "步行"
+        : mode === "riding"
+          ? "骑行"
+          : "打车/驾车"
+      : mode === "walking"
+        ? "Walk"
+        : mode === "riding"
+          ? "Ride"
+          : "Taxi / Drive";
+
+  return `${modeLabel} ${durationMinutes} ${language === "zh" ? "分钟" : "min"} · ${formatDistanceLabel(distanceMeters, language)}`;
+}
+
+function buildAmapNavigationUrl({
+  start,
+  startName,
+  end,
+  endName,
+  mode,
+}: {
+  start: { latitude: number; longitude: number };
+  startName: string;
+  end: { latitude: number; longitude: number };
+  endName: string;
+  mode: "walk" | "ride" | "car";
+}) {
+  const params = new URLSearchParams({
+    from: `${start.longitude},${start.latitude},${startName}`,
+    to: `${end.longitude},${end.latitude},${endName}`,
+    mode,
+    policy: "1",
+    src: "wander",
+    coordinate: "gaode",
+    callnative: "1",
+  });
+
+  return `https://uri.amap.com/navigation?${params.toString()}`;
+}
+
+function distanceMetersBetweenCoordinates(
+  start: { latitude: number; longitude: number },
+  end: { latitude: number; longitude: number }
+) {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const deltaLat = toRadians(end.latitude - start.latitude);
+  const deltaLon = toRadians(end.longitude - start.longitude);
+  const startLat = toRadians(start.latitude);
+  const endLat = toRadians(end.latitude);
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(startLat) * Math.cos(endLat) * Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+
+  return Math.round(2 * earthRadiusKm * Math.asin(Math.sqrt(a)) * 1000);
+}
+
+function formatDistanceLabel(distanceMeters: number, language: "zh" | "en") {
+  if (distanceMeters < 1000) {
+    return language === "zh" ? `${distanceMeters}米` : `${distanceMeters}m`;
+  }
+
+  return language === "zh"
+    ? `${(distanceMeters / 1000).toFixed(1)}公里`
+    : `${(distanceMeters / 1000).toFixed(1)}km`;
 }
 
 function buildGenerationErrorNote(error: unknown, language: "zh" | "en") {

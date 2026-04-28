@@ -11,10 +11,19 @@ const RouteMapPreview = lazy(async () => {
 });
 
 export function SelectedRoutePanel() {
-  const { parsed, routes, selectedRoute, openStop, location } = useWander();
+  const {
+    parsed,
+    routes,
+    selectedRoute,
+    openStop,
+    location,
+    moveRouteStop,
+    removeRouteStop,
+  } = useWander();
   const { language } = useLanguage();
   const copy = useCopy();
   const detailCopy = buildDetailCopy(language);
+  const editCopy = buildRouteEditCopy(language);
 
   if (!selectedRoute) {
     const hasRoutes = routes.length > 0;
@@ -123,6 +132,30 @@ export function SelectedRoutePanel() {
                     </div>
                   </div>
 
+                  <div className="route-edit-actions" aria-label={editCopy.editRoute}>
+                    <button
+                      type="button"
+                      onClick={() => moveRouteStop(selectedRoute.id, stop.id, "up")}
+                      disabled={index === 0}
+                    >
+                      {editCopy.moveUp}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveRouteStop(selectedRoute.id, stop.id, "down")}
+                      disabled={index === selectedRoute.stops.length - 1}
+                    >
+                      {editCopy.moveDown}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeRouteStop(selectedRoute.id, stop.id)}
+                      disabled={selectedRoute.stops.length <= 1}
+                    >
+                      {editCopy.remove}
+                    </button>
+                  </div>
+
                   <p className="ugc-brief">{stop.summary}</p>
 
                   {stop.travelModesFromPrevious?.length ? (
@@ -189,6 +222,22 @@ function buildDetailCopy(language: "zh" | "en") {
         openFirstLeg: "Open Nav",
         modeSummary: "Mode",
         scheduleBlock: "Time",
+      };
+}
+
+function buildRouteEditCopy(language: "zh" | "en") {
+  return language === "zh"
+    ? {
+        editRoute: "编辑路线",
+        moveUp: "上移",
+        moveDown: "下移",
+        remove: "删除",
+      }
+    : {
+        editRoute: "Edit route",
+        moveUp: "Move up",
+        moveDown: "Move down",
+        remove: "Remove",
       };
 }
 
