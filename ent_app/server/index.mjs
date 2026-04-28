@@ -255,7 +255,7 @@ server.listen(port, () => {
 
 async function handleAuthRequest({ request, response, method, pathname }) {
   if (method === "GET" && pathname === "/api/auth/session") {
-    const user = getUserBySessionToken(readSessionToken(request));
+    const user = await getUserBySessionToken(readSessionToken(request));
     respondJson(response, 200, {
       ok: true,
       user: toPublicUser(user),
@@ -265,7 +265,7 @@ async function handleAuthRequest({ request, response, method, pathname }) {
 
   if (method === "POST" && pathname === "/api/auth/register") {
     const body = await readJsonBody(request);
-    const session = registerUser({
+    const session = await registerUser({
       email: body.email,
       password: body.password,
       name: body.name,
@@ -280,7 +280,7 @@ async function handleAuthRequest({ request, response, method, pathname }) {
 
   if (method === "POST" && pathname === "/api/auth/login") {
     const body = await readJsonBody(request);
-    const session = loginUser({
+    const session = await loginUser({
       email: body.email,
       password: body.password,
     });
@@ -299,7 +299,7 @@ async function handleAuthRequest({ request, response, method, pathname }) {
     }
 
     const body = await readJsonBody(request);
-    const user = updateUserProfileBySession(token, body);
+    const user = await updateUserProfileBySession(token, body);
     respondJson(response, 200, {
       ok: true,
       user: toPublicUser(user),
@@ -308,7 +308,7 @@ async function handleAuthRequest({ request, response, method, pathname }) {
   }
 
   if (method === "POST" && pathname === "/api/auth/logout") {
-    deleteSession(readSessionToken(request));
+    await deleteSession(readSessionToken(request));
     clearSessionCookie(response, request);
     respondJson(response, 200, { ok: true });
     return;
