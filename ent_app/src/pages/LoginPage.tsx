@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../i18n";
 import { useWander } from "../wander-state";
 
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "reset";
 
 type RememberedAuth = {
   email: string;
@@ -17,7 +17,7 @@ const minPasswordLength = 7;
 
 export function LoginPage() {
   const { language } = useLanguage();
-  const { login, register } = useWander();
+  const { login, register, resetPassword } = useWander();
   const navigate = useNavigate();
   const labels = buildAuthLabels(language);
   const remembered = readRememberedAuth();
@@ -28,7 +28,6 @@ export function LoginPage() {
   const [rememberAccount, setRememberAccount] = useState(remembered.rememberAccount);
   const [rememberPassword, setRememberPassword] = useState(remembered.rememberPassword);
   const [error, setError] = useState("");
-
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent) => {
@@ -50,33 +49,32 @@ export function LoginPage() {
       return;
     }
 
-    if (mode === "register" && safePassword !== confirmPassword.trim()) {
+    if ((mode === "register" || mode === "reset") && safePassword !== confirmPassword.trim()) {
       setError(labels.passwordMismatch);
       return;
     }
 
     setIsSubmitting(true);
-    const success =
+    const result =
       mode === "register"
         ? await register({
-        email: safeEmail,
-        name: "Wander User",
-        password: safePassword,
+            email: safeEmail,
+            name: "Wander User",
+            password: safePassword,
           })
-        : await login({
-        email: safeEmail,
-        password: safePassword,
-          });
+        : mode === "reset"
+          ? await resetPassword({
+              email: safeEmail,
+              password: safePassword,
+            })
+          : await login({
+              email: safeEmail,
+              password: safePassword,
+            });
 
     setIsSubmitting(false);
-    if (!success.ok) {
-      setError(
-        mode === "register" && success.reason === "email-used"
-          ? labels.emailUsed
-          : mode === "register"
-            ? labels.registerFailed
-            : labels.loginFailed
-      );
+    if (!result.ok) {
+      setError(getAuthErrorMessage(mode, result.reason, labels));
       return;
     }
 
@@ -87,9 +85,7 @@ export function LoginPage() {
       rememberPassword,
     });
     setError("");
-    navigate(mode === "register" ? "/onboarding" : "/", {
-      replace: true,
-    });
+    navigate(mode === "register" ? "/onboarding" : "/", { replace: true });
   };
 
   const switchMode = (nextMode: AuthMode) => {
@@ -103,7 +99,7 @@ export function LoginPage() {
       <section className="auth-panel">
         <div className="auth-copy">
           <span className="eyebrow">Wander</span>
-          <h1>{mode === "register" ? labels.registerTitle : labels.title}</h1>
+          <h1>{mode === "register" ? labels.registerTitle : mode === "reset" ? labels.resetTitle : labels.title}</h1>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
@@ -139,12 +135,12 @@ export function LoginPage() {
             <input
               value={password}
               type="password"
-              autoComplete={mode === "register" ? "new-password" : "current-password"}
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
               onChange={(event) => setPassword(event.target.value)}
             />
           </label>
 
-          {mode === "register" ? (
+          {mode === "register" || mode === "reset" ? (
             <label className="auth-field">
               <span>{labels.confirmPassword}</span>
               <input
@@ -185,15 +181,51 @@ export function LoginPage() {
             </div>
           )}
 
+          {mode !== "reset" ? (
+            <button className="auth-link-button" type="button" onClick={() => switchMode("reset")}>
+              {labels.forgotPassword}
+            </button>
+          ) : (
+            <button className="auth-link-button" type="button" onClick={() => switchMode("login")}>
+              {labels.backToLogin}
+            </button>
+          )}
+
           {error ? <p className="auth-error">{error}</p> : null}
 
           <button className="primary-button auth-submit" type="submit">
-            {isSubmitting ? labels.submitting : mode === "register" ? labels.create : labels.enter}
+            {isSubmitting
+              ? labels.submitting
+              : mode === "register"
+                ? labels.create
+                : mode === "reset"
+                  ? labels.resetPassword
+                  : labels.enter}
           </button>
         </form>
       </section>
     </main>
   );
+}
+
+function getAuthErrorMessage(
+  mode: AuthMode,
+  reason: "email-used" | "not-found" | "invalid" | undefined,
+  labels: ReturnType<typeof buildAuthLabels>
+) {
+  if (mode === "register" && reason === "email-used") {
+    return labels.emailUsed;
+  }
+
+  if (mode === "reset" && reason === "not-found") {
+    return labels.accountNotFound;
+  }
+
+  if (mode === "reset") {
+    return labels.resetFailed;
+  }
+
+  return mode === "register" ? labels.registerFailed : labels.loginFailed;
 }
 
 function readRememberedAuth(): RememberedAuth {
@@ -234,33 +266,43 @@ function buildAuthLabels(language: "zh" | "en") {
     ? {
         title: "登录 Wander",
         registerTitle: "创建 Wander 账号",
+        resetTitle: "重置密码",
         login: "登录",
         register: "注册",
+        resetPassword: "重置密码",
         email: "邮箱 / 账号",
         password: "密码",
         confirmPassword: "确认密码",
         rememberAccount: "记住账号",
         rememberPassword: "记住密码",
+        forgotPassword: "忘记密码？",
+        backToLogin: "返回登录",
         enter: "进入 Wander",
         create: "创建账号",
-        emailRequired: "请先输入账号。",
+        emailRequired: "请先输入邮箱。",
         passwordRule: "密码必须大于 6 位。",
         passwordMismatch: "两次输入的密码不一致。",
         loginFailed: "账号或密码不正确，请检查后再试。",
         emailUsed: "该邮箱已被使用，请更换邮箱。",
-        registerFailed: "注册失败，请检查账号是否已经存在。",
+        accountNotFound: "该邮箱还没有注册，请先注册账号。",
+        resetFailed: "密码重置失败，请检查邮箱和新密码。",
+        registerFailed: "注册失败，请稍后再试。",
         submitting: "处理中...",
       }
     : {
         title: "Sign in to Wander",
         registerTitle: "Create your Wander account",
+        resetTitle: "Reset password",
         login: "Log In",
         register: "Register",
+        resetPassword: "Reset Password",
         email: "Email / Account",
         password: "Password",
         confirmPassword: "Confirm Password",
         rememberAccount: "Remember account",
         rememberPassword: "Remember password",
+        forgotPassword: "Forgot password?",
+        backToLogin: "Back to login",
         enter: "Enter Wander",
         create: "Create Account",
         emailRequired: "Please enter your account first.",
@@ -268,7 +310,9 @@ function buildAuthLabels(language: "zh" | "en") {
         passwordMismatch: "The two passwords do not match.",
         loginFailed: "The account or password is incorrect.",
         emailUsed: "This email is already in use. Please use another email.",
-        registerFailed: "Registration failed. Please check whether the account already exists.",
+        accountNotFound: "This email is not registered yet. Please create an account first.",
+        resetFailed: "Password reset failed. Please check the email and new password.",
+        registerFailed: "Registration failed. Please try again later.",
         submitting: "Working...",
       };
 }

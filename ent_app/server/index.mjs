@@ -17,6 +17,7 @@ import {
   getUserStoreMode,
   loginUser,
   registerUser,
+  resetUserPassword,
   toPublicUser,
   updateUserProfileBySession,
 } from "./user-store.mjs";
@@ -284,6 +285,20 @@ async function handleAuthRequest({ request, response, method, pathname }) {
   if (method === "POST" && pathname === "/api/auth/login") {
     const body = await readJsonBody(request);
     const session = await loginUser({
+      email: body.email,
+      password: body.password,
+    });
+    setSessionCookie(response, request, session.token);
+    respondJson(response, 200, {
+      ok: true,
+      user: toPublicUser(session.user),
+    });
+    return;
+  }
+
+  if (method === "POST" && pathname === "/api/auth/reset-password") {
+    const body = await readJsonBody(request);
+    const session = await resetUserPassword({
       email: body.email,
       password: body.password,
     });

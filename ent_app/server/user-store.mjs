@@ -68,6 +68,29 @@ export async function loginUser({ email, password }) {
   return createSessionForUser(user.id);
 }
 
+export async function resetUserPassword({ email, password }) {
+  const safeEmail = normalizeEmail(email);
+  const safePassword = normalizePassword(password);
+  if (!safeEmail || safePassword.length < 7) {
+    throw createPublicError("Valid email and a password longer than 6 characters are required.", 400);
+  }
+
+  if (hasPostgres()) {
+    return resetUserPasswordWithPostgres({ email: safeEmail, password: safePassword });
+  }
+
+  const database = readDatabase();
+  const user = database.users.find((item) => item.email === safeEmail);
+  if (!user) {
+    throw createPublicError("This account does not exist.", 404);
+  }
+
+  user.passwordHash = hashPassword(safePassword);
+  user.updatedAt = new Date().toISOString();
+  writeDatabase(database);
+  return createSessionForUser(user.id);
+}
+
 export async function getUserBySessionToken(token) {
   const safeToken = normalizeLine(token);
   if (!safeToken) {
@@ -262,6 +285,23 @@ async function loginUserWithPostgres({ email, password }) {
   }
 
   return createPostgresSessionForUser(user);
+}
+
+async function resetUserPasswordWithPostgres({ email, password }) {
+  const pool = await getPostgresPool();
+  const result = await pool.query(
+    `UPDATE wander_users
+     SET password_hash = $2, updated_at = NOW()
+     WHERE email = $1
+     RETURNING *`,
+    [email, hashPassword(password)]
+  );
+
+  if (!result.rows[0]) {
+    throw createPublicError("This account does not exist.", 404);
+  }
+
+  return createPostgresSessionForUser(mapPostgresUser(result.rows[0]));
 }
 
 async function getUserBySessionTokenWithPostgres(token) {

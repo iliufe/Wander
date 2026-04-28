@@ -3677,6 +3677,19 @@ body {
   accent-color: #101721;
 }
 
+.auth-link-button {
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  color: #173246;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 800;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
 .auth-error {
   margin: -2px 0 0;
   padding: 10px 12px;
