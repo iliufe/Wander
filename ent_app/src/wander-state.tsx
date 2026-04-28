@@ -306,6 +306,10 @@ export function WanderProvider({ children }: { children: ReactNode }) {
   }, [routes]);
 
   useEffect(() => {
+    if (generationRunId === 0) {
+      return;
+    }
+
     if (!activePrompt.trim() || !locationReady || location.latitude == null || location.longitude == null) {
       setPlannedIntent(null);
       setPlannedRoutes([]);
