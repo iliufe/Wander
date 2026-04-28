@@ -3911,3 +3911,69 @@ body {
     width: 100%;
   }
 }
+
+.route-card,
+.clean-route-card,
+.timeline-stop,
+.timeline-stop-body,
+.timeline-stop-head,
+.route-top,
+.route-top > div,
+.map-node,
+.map-node > div,
+.start-result-item,
+.start-result-copy,
+.saved-address-card,
+.profile-account-panel,
+.planner-home-panel,
+.route-focus,
+.route-mode-card,
+.meta-pill,
+.status-chip,
+.stop-tag,
+.sheet-card,
+.sheet-card article {
+  min-width: 0;
+}
+
+.route-card strong,
+.route-card p,
+.stop-preview span,
+.timeline-stop strong,
+.timeline-stop small,
+.timeline-stop span,
+.map-node strong,
+.map-node span,
+.start-result-copy strong,
+.start-result-copy small,
+.saved-address-head strong,
+.profile-field input,
+.profile-field select,
+.meta-pill,
+.status-chip,
+.stop-tag,
+.route-mode-card p,
+.route-nav-link,
+.sheet-card h3,
+.sheet-card p,
+.sheet-card strong,
+.sheet-card li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.meta-row,
+.route-flags,
+.stop-tags,
+.route-edit-actions,
+.saved-address-actions {
+  flex-wrap: wrap;
+}
+
+.route-nav-link,
+.route-action,
+.saved-address-actions button,
+.route-edit-actions button,
+.leg-mode-chip a {
+  white-space: normal;
+}

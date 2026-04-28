@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLanguage } from "../i18n";
+import { localizeLocationLabel } from "../display-text";
 import { loadAmapJsApi } from "../services/amap-web";
 import type { DeviceLocation } from "../types";
 
@@ -10,6 +11,7 @@ interface CurrentLocationMapProps {
 
 export function CurrentLocationMap({ location, onSelectPoint }: CurrentLocationMapProps) {
   const { language } = useLanguage();
+  const markerTitle = localizeLocationLabel(location, language);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<{ destroy: () => void } | null>(null);
   const [note, setNote] = useState("");
@@ -39,6 +41,7 @@ export function CurrentLocationMap({ location, onSelectPoint }: CurrentLocationM
         const map = new AMap.Map(containerRef.current, {
           zoom: location.latitude != null ? 16 : 13,
           center,
+          lang: language === "en" ? "en" : "zh_cn",
           viewMode: "3D",
           mapStyle: "amap://styles/normal",
         });
@@ -59,7 +62,7 @@ export function CurrentLocationMap({ location, onSelectPoint }: CurrentLocationM
 
           const marker = new AMap.Marker({
             position: center,
-            title: location.label,
+            title: markerTitle,
             offset: new AMap.Pixel(-11, -11),
             content: '<div class="wander-location-dot"><span></span></div>',
           });
@@ -95,7 +98,7 @@ export function CurrentLocationMap({ location, onSelectPoint }: CurrentLocationM
     return () => {
       cancelled = true;
     };
-  }, [language, location.accuracyMeters, location.label, location.latitude, location.longitude, onSelectPoint]);
+  }, [language, location.accuracyMeters, location.latitude, location.longitude, markerTitle, onSelectPoint]);
 
   useEffect(() => {
     return () => {

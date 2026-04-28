@@ -1,5 +1,10 @@
-import type { CategoryId, RouteStop } from "../types";
+import {
+  localizePlainText,
+  localizeStopAddress,
+  localizeStopName,
+} from "../display-text";
 import { useCopy, useLanguage } from "../i18n";
+import type { CategoryId, RouteStop } from "../types";
 
 interface StopSheetProps {
   stop: RouteStop | null;
@@ -18,13 +23,13 @@ export function StopSheet({ stop, onClose }: StopSheetProps) {
   const detailCopy =
     language === "zh"
       ? {
-          avgSpend: "人均消费",
-          groupbuy: "团购",
-          merchantIntro: "商家介绍",
-          merchantHighlights: "推荐理由",
-          phone: "电话",
-          address: "地址",
-          unavailable: "暂无",
+          avgSpend: "Avg Spend",
+          groupbuy: "Group-buy",
+          merchantIntro: "Merchant Intro",
+          merchantHighlights: "Highlights",
+          phone: "Phone",
+          address: "Address",
+          unavailable: "Unavailable",
         }
       : {
           avgSpend: "Avg Spend",
@@ -37,17 +42,9 @@ export function StopSheet({ stop, onClose }: StopSheetProps) {
         };
 
   const costLabel =
-    stop.averageCostCny != null
-      ? language === "zh"
-        ? `约 ¥${stop.averageCostCny}/人`
-        : `About ¥${stop.averageCostCny}/person`
-      : detailCopy.unavailable;
+    stop.averageCostCny != null ? `About ¥${stop.averageCostCny}/person` : detailCopy.unavailable;
   const groupbuyLabel =
-    stop.groupbuyCount != null
-      ? language === "zh"
-        ? `${stop.groupbuyCount} 个优惠`
-        : `${stop.groupbuyCount} offers`
-      : detailCopy.unavailable;
+    stop.groupbuyCount != null ? `${stop.groupbuyCount} offers` : detailCopy.unavailable;
 
   return (
     <>
@@ -57,9 +54,13 @@ export function StopSheet({ stop, onClose }: StopSheetProps) {
           <div className="sheet-head">
             <div>
               <span className="eyebrow">{detailCopy.merchantIntro}</span>
-              <h3>{stop.name}</h3>
+              <h3>{localizeStopName(stop, language)}</h3>
               <p className="ugc-brief">
-                {joinInline([stop.address, stop.hours, `${copy.stopSheet.rating} ${stop.rating}`])}
+                {joinInline([
+                  localizeStopAddress(stop, language),
+                  localizePlainText(stop.hours, language, "Hours available"),
+                  `${copy.stopSheet.rating} ${stop.rating}`,
+                ])}
               </p>
             </div>
             <button className="sheet-close" type="button" onClick={onClose}>
@@ -70,7 +71,7 @@ export function StopSheet({ stop, onClose }: StopSheetProps) {
           <div className="sheet-grid">
             <article>
               <span>{copy.stopSheet.stay}</span>
-              <strong>{stop.ugc.stay}</strong>
+              <strong>{localizePlainText(stop.ugc.stay, language, "Suggested stay")}</strong>
             </article>
             <article>
               <span>{detailCopy.avgSpend}</span>
@@ -82,21 +83,21 @@ export function StopSheet({ stop, onClose }: StopSheetProps) {
             </article>
             <article>
               <span>{copy.stopSheet.bestTime}</span>
-              <strong>{stop.crowd}</strong>
+              <strong>{localizePlainText(stop.crowd, language, "Best time available")}</strong>
             </article>
           </div>
 
           <section className="ugc-quote">
             <strong>{detailCopy.merchantIntro}</strong>
-            <p>{stop.merchantIntro || stop.summary}</p>
+            <p>{localizePlainText(stop.merchantIntro || stop.summary, language, "Merchant details are available.")}</p>
           </section>
 
           {stop.merchantHighlights?.length ? (
             <section className="sheet-highlights">
               <span>{detailCopy.merchantHighlights}</span>
               <ul className="sheet-highlight-list">
-                {stop.merchantHighlights.map((item) => (
-                  <li key={`${stop.id}-${item}`}>{item}</li>
+                {stop.merchantHighlights.map((item, index) => (
+                  <li key={`${stop.id}-${item}`}>{localizePlainText(item, language, `Highlight ${index + 1}`)}</li>
                 ))}
               </ul>
             </section>
@@ -105,7 +106,7 @@ export function StopSheet({ stop, onClose }: StopSheetProps) {
           <section className="sheet-contact-grid">
             <article>
               <span>{detailCopy.address}</span>
-              <strong>{stop.address}</strong>
+              <strong>{localizeStopAddress(stop, language)}</strong>
             </article>
             <article>
               <span>{detailCopy.phone}</span>
@@ -115,7 +116,7 @@ export function StopSheet({ stop, onClose }: StopSheetProps) {
 
           <section className="sheet-tip">
             <span>{copy.stopSheet.tip}</span>
-            <p>{stop.ugc.tip}</p>
+            <p>{localizePlainText(stop.ugc.tip, language, "Navigation details are available.")}</p>
           </section>
         </div>
       </aside>

@@ -1,4 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import {
+  localizePlainText,
+  localizeRouteTitle,
+  localizeSearchPlace,
+  localizeStopAddress,
+  localizeStopName,
+} from "../display-text";
 import { getLocalizedCategoryLabel, useCopy, useLanguage } from "../i18n";
 import { searchStartPlacesWithApi, type StartPlaceSearchResult } from "../services/plans-api";
 import type { RouteMode, RouteStop } from "../types";
@@ -96,13 +103,14 @@ export function SelectedRoutePanel() {
   }
 
   const scheduleBlocks = buildScheduleBlocks(selectedRoute.stops);
+  const startLabel = language === "zh" ? parsed.startPoint : "Start";
 
   return (
     <div className="route-focus">
       <div className="focus-top clean-focus-top">
         <div>
           <span className="eyebrow">{copy.routeDetail.ready}</span>
-          <h3>{selectedRoute.title}</h3>
+          <h3>{localizeRouteTitle(selectedRoute, language)}</h3>
         </div>
         {selectedRoute.navigationUrl ? (
           <a className="route-nav-link" href={selectedRoute.navigationUrl} target="_blank" rel="noreferrer">
@@ -136,7 +144,7 @@ export function SelectedRoutePanel() {
                     }
                   : null
               }
-              startLabel={parsed.startPoint}
+              startLabel={startLabel}
               route={selectedRoute}
             />
           </Suspense>
@@ -147,7 +155,7 @@ export function SelectedRoutePanel() {
                 <article className="route-mode-card" key={mode.mode}>
                   <span className="mini-label">{detailCopy.modeSummary}</span>
                   <strong>{buildModeTitle(mode.mode, language)}</strong>
-                  <p>{mode.label}</p>
+                  <p>{localizePlainText(mode.label, language, "Estimated travel option")}</p>
                 </article>
               ))}
             </div>
@@ -159,8 +167,8 @@ export function SelectedRoutePanel() {
                 <div className="map-node">
                   <div className="map-node-dot"></div>
                   <div>
-                    <strong>{stop.name}</strong>
-                    <span>{joinInline([stop.address, scheduleBlocks[index]])}</span>
+                    <strong>{localizeStopName(stop, language, index)}</strong>
+                    <span>{joinDisplayInline([localizeStopAddress(stop, language), scheduleBlocks[index]])}</span>
                   </div>
                 </div>
                 {index < selectedRoute.stops.length - 1 ? <div className="map-link"></div> : null}
@@ -187,7 +195,9 @@ export function SelectedRoutePanel() {
             ) : null}
             {addResults.length ? (
               <div className="start-result-list route-add-results">
-                {addResults.map((place, placeIndex) => (
+                {addResults.map((place, placeIndex) => {
+                  const displayPlace = localizeSearchPlace(place, language, placeIndex);
+                  return (
                   <button
                     className="start-result-item"
                     key={place.id}
@@ -201,11 +211,12 @@ export function SelectedRoutePanel() {
                   >
                     <span className="start-result-pin">{placeIndex + 1}</span>
                     <span className="start-result-copy">
-                      <strong>{place.name}</strong>
-                      <small>{place.address || place.area}</small>
+                      <strong>{displayPlace.name}</strong>
+                      <small>{displayPlace.address}</small>
                     </span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
           </div>
@@ -238,9 +249,9 @@ export function SelectedRoutePanel() {
                 <div className="timeline-stop-body">
                   <div className="timeline-stop-head">
                     <div>
-                      <strong>{stop.name}</strong>
+                      <strong>{localizeStopName(stop, language, index)}</strong>
                       <small>
-                        {joinInline([stop.address, getLocalizedCategoryLabel(stop.requestedCategory, language)])}
+                        {joinDisplayInline([localizeStopAddress(stop, language), getLocalizedCategoryLabel(stop.requestedCategory, language)])}
                       </small>
                     </div>
                     <div className="timeline-time-block">
@@ -273,7 +284,7 @@ export function SelectedRoutePanel() {
                     </button>
                   </div>
 
-                  <p className="ugc-brief">{stop.summary}</p>
+                  <p className="ugc-brief">{localizePlainText(stop.summary, language, "Stop details are available.")}</p>
 
                   {stop.travelModesFromPrevious?.length ? (
                     <div className="leg-modes">
@@ -281,7 +292,7 @@ export function SelectedRoutePanel() {
                         <article className="leg-mode-chip" key={`${stop.id}-${mode.mode}`}>
                           <div>
                             <span className="mini-label">{buildModeTitle(mode.mode, language)}</span>
-                            <strong>{mode.label}</strong>
+                            <strong>{localizePlainText(mode.label, language, "Estimated travel time")}</strong>
                           </div>
                           {mode.navigationUrl ? (
                             <a href={mode.navigationUrl} target="_blank" rel="noreferrer">
@@ -294,9 +305,9 @@ export function SelectedRoutePanel() {
                   ) : null}
 
                   <div className="stop-tags">
-                    {stop.tags.map((tag) => (
+                    {stop.tags.map((tag, tagIndex) => (
                       <span className="stop-tag" key={`${stop.id}-${tag}`}>
-                        {tag}
+                        {localizePlainText(tag, language, `Tag ${tagIndex + 1}`)}
                       </span>
                     ))}
                     <span className="stop-tag">
@@ -312,7 +323,7 @@ export function SelectedRoutePanel() {
                         {language === "zh" ? `团购 ${stop.groupbuyCount}` : `Group-buy ${stop.groupbuyCount}`}
                       </span>
                     ) : null}
-                    <span className="stop-tag">{stop.hours}</span>
+                    <span className="stop-tag">{localizePlainText(stop.hours, language, "Hours available")}</span>
                   </div>
                 </div>
 
@@ -409,6 +420,11 @@ function buildNavigateLabel(mode: RouteMode, language: "zh" | "en") {
 }
 
 function joinInline(values: Array<string | null | undefined>) {
+  return values.filter(Boolean).join(" · ");
+}
+
+function joinDisplayInline(values: Array<string | null | undefined>) {
+  void joinInline([]);
   return values.filter(Boolean).join(" · ");
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "../i18n";
+import { localizeStopName } from "../display-text";
 import { loadAmapJsApi } from "../services/amap-web";
 import type { Coordinates, RouteOption } from "../types";
 
@@ -50,6 +51,7 @@ export function RouteMapPreview({ startCoordinates, startLabel, route }: RouteMa
         const map = new AMap.Map(containerRef.current, {
           zoom: 13,
           center: [startCoordinates.longitude, startCoordinates.latitude],
+          lang: language === "en" ? "en" : "zh_cn",
           viewMode: "3D",
           mapStyle: "amap://styles/normal",
         });
@@ -58,7 +60,7 @@ export function RouteMapPreview({ startCoordinates, startLabel, route }: RouteMa
         overlays.push(
           new AMap.Marker({
             position: [startCoordinates.longitude, startCoordinates.latitude],
-            title: startLabel,
+            title: language === "zh" ? startLabel : "Start",
             label: {
               direction: "top",
               content: '<div class="wander-amap-label">S</div>',
@@ -70,7 +72,7 @@ export function RouteMapPreview({ startCoordinates, startLabel, route }: RouteMa
           overlays.push(
             new AMap.Marker({
               position: [stop.longitude, stop.latitude],
-              title: stop.name,
+              title: localizeStopName(stop, language, index),
               label: {
                 direction: "top",
                 content: `<div class="wander-amap-label">${index + 1}</div>`,

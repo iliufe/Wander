@@ -1,5 +1,6 @@
 import { RouteCard } from "../components/RouteCard";
 import { SelectedRoutePanel } from "../components/SelectedRoutePanel";
+import { localizeLocationLabel } from "../display-text";
 import { formatHours } from "../engine";
 import { getLocalizedCategoryLabel, useCopy, useLanguage } from "../i18n";
 import { useWander } from "../wander-state";
@@ -19,7 +20,7 @@ export function RoutesPage() {
             {routes.length} {language === "zh" ? "条方案" : "options"}
           </span>
           <span className="meta-pill">{parsed.timeLabel}</span>
-          <span className="meta-pill">{location.label}</span>
+          <span className="meta-pill">{localizeLocationLabel(location, language)}</span>
         </div>
       </section>
 

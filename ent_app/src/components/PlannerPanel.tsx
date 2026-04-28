@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cityDriftData } from "../data";
+import { localizeLocationLabel, localizeSearchPlace } from "../display-text";
 import type { DeviceLocation } from "../types";
 import { useCopy, useLanguage } from "../i18n";
 import { searchStartPlacesWithApi, type StartPlaceSearchResult } from "../services/plans-api";
@@ -163,7 +164,7 @@ export function PlannerPanel() {
         <div className="start-picker-panel">
           <div className="start-picker-head">
             <strong>{labels.startTitle}</strong>
-            <span>{location.nearbyPlaceName || location.label}</span>
+            <span>{localizeLocationLabel(location, language)}</span>
           </div>
           <div className="ride-search-box">
             <span className="ride-search-icon"></span>
@@ -196,7 +197,9 @@ export function PlannerPanel() {
           ) : null}
           {startResults.length ? (
             <div className="start-result-list">
-              {startResults.map((place, index) => (
+              {startResults.map((place, index) => {
+                const displayPlace = localizeSearchPlace(place, language, index);
+                return (
                 <button
                   className="start-result-item"
                   key={place.id}
@@ -211,12 +214,13 @@ export function PlannerPanel() {
                 >
                   <span className="start-result-pin">{index + 1}</span>
                   <span className="start-result-copy">
-                    <strong>{place.name}</strong>
-                    <small>{place.address || place.area}</small>
+                    <strong>{displayPlace.name}</strong>
+                    <small>{displayPlace.address}</small>
                   </span>
                   <span className="start-result-distance">{formatDistance(place.distanceMeters, language)}</span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           ) : null}
         </div>

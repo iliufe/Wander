@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { localizeSearchPlace } from "../display-text";
 import type { SavedAddress, UserGender, UserProfession } from "../types";
 import { useCopy, useLanguage } from "../i18n";
 import { searchStartPlacesWithApi, type StartPlaceSearchResult } from "../services/plans-api";
@@ -157,6 +158,7 @@ export function ProfilePage() {
               adcode: location.adcode,
             }}
             labels={labels}
+            language={language}
             onSave={(place) =>
               updateSavedAddress(item.id, {
                 label: item.label,
@@ -181,10 +183,11 @@ interface AddressCardProps {
     adcode?: string | null;
   };
   labels: ReturnType<typeof buildProfileLabels>;
+  language: "zh" | "en";
   onSave: (place: StartPlaceSearchResult) => void;
 }
 
-function AddressCard({ address, locationContext, labels, onSave }: AddressCardProps) {
+function AddressCard({ address, locationContext, labels, language, onSave }: AddressCardProps) {
   const [query, setQuery] = useState(address.address);
   const [selectedPlace, setSelectedPlace] = useState<StartPlaceSearchResult | null>(null);
   const [results, setResults] = useState<StartPlaceSearchResult[]>([]);
@@ -267,25 +270,28 @@ function AddressCard({ address, locationContext, labels, onSave }: AddressCardPr
       ) : null}
       {results.length ? (
         <div className="start-result-list saved-address-results">
-          {results.map((place, index) => (
-            <button
-              className="start-result-item"
-              key={place.id}
-              type="button"
-              onClick={() => {
-                setSelectedPlace(place);
-                setQuery(place.name);
-                setResults([]);
-                setStatus("idle");
-              }}
-            >
-              <span className="start-result-pin">{index + 1}</span>
-              <span className="start-result-copy">
-                <strong>{place.name}</strong>
-                <small>{place.address || place.area}</small>
-              </span>
-            </button>
-          ))}
+          {results.map((place, index) => {
+            const displayPlace = localizeSearchPlace(place, language, index);
+            return (
+              <button
+                className="start-result-item"
+                key={place.id}
+                type="button"
+                onClick={() => {
+                  setSelectedPlace(place);
+                  setQuery(place.name);
+                  setResults([]);
+                  setStatus("idle");
+                }}
+              >
+                <span className="start-result-pin">{index + 1}</span>
+                <span className="start-result-copy">
+                  <strong>{displayPlace.name}</strong>
+                  <small>{displayPlace.address}</small>
+                </span>
+              </button>
+            );
+          })}
         </div>
       ) : null}
       <div className="saved-address-actions">

@@ -1,5 +1,14 @@
-import type { CategoryId, RouteOption } from "../types";
+import {
+  localizePlainText,
+  localizeRouteAccent,
+  localizeRouteSummary,
+  localizeRouteTitle,
+  localizeStopAddress,
+  localizeStopName,
+  localizeTransitSummary,
+} from "../display-text";
 import { useCopy, useLanguage } from "../i18n";
+import type { CategoryId, RouteOption } from "../types";
 
 interface RouteCardProps {
   route: RouteOption;
@@ -29,8 +38,8 @@ export function RouteCard({
           <span className="eyebrow">
             {copy.routeCard.option} {index + 1}
           </span>
-          <strong>{route.title}</strong>
-          <p>{route.summary}</p>
+          <strong>{localizeRouteTitle(route, language, index)}</strong>
+          <p>{localizeRouteSummary(route, language)}</p>
         </div>
         <span className="route-rank">{route.fitScore}%</span>
       </div>
@@ -38,22 +47,24 @@ export function RouteCard({
         <span className="meta-pill">
           {copy.routeCard.total} {formatHours(route.totalMinutes)}
         </span>
-        <span className="meta-pill">{route.transitSummary}</span>
+        <span className="meta-pill">{localizeTransitSummary(route, language)}</span>
         <span className="meta-pill">
-          {copy.routeCard.buffer} {route.bufferMinutes} {language === "zh" ? "分钟" : "min"}
+          {copy.routeCard.buffer} {route.bufferMinutes} min
         </span>
       </div>
       <div className="route-flags">
-        <span className="status-chip">{route.clusterAccent}</span>
+        <span className="status-chip">{localizeRouteAccent(route, language)}</span>
       </div>
       <div className="stop-preview">
         {route.stops.map((stop, stopIndex) => (
           <article key={stop.id}>
             <div className="stop-index">{stopIndex + 1}</div>
             <div>
-              <strong>{stop.name}</strong>
+              <strong>{localizeStopName(stop, language, stopIndex)}</strong>
               <span>
-                {stop.address} · {stop.visitLabel}
+                {[localizeStopAddress(stop, language), localizePlainText(stop.visitLabel, language, "Suggested visit")]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             </div>
             <span className="status-chip">{getCategoryLabel(stop.requestedCategory)}</span>

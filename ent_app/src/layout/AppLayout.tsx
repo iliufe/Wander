@@ -43,7 +43,7 @@ export function AppLayout() {
                 type="button"
                 onClick={() => setLanguage("zh")}
               >
-                中
+                CN
               </button>
               <button
                 className={`lang-button ${language === "en" ? "is-active" : ""}`}
@@ -56,7 +56,7 @@ export function AppLayout() {
             <NavLink
               aria-label={copy.layout.navProfile}
               className="account-chip avatar-only"
-              title={userProfile.isAuthenticated ? userProfile.name : language === "zh" ? "登录" : "Log in"}
+              title={userProfile.isAuthenticated ? userProfile.name : language === "zh" ? "Login" : "Log in"}
               to={userProfile.isAuthenticated ? "/profile" : "/login"}
             >
               <span className="account-avatar">
