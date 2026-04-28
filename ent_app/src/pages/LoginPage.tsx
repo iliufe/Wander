@@ -17,7 +17,7 @@ const minPasswordLength = 7;
 
 export function LoginPage() {
   const { language } = useLanguage();
-  const { login, register, userProfile } = useWander();
+  const { login, register } = useWander();
   const navigate = useNavigate();
   const labels = buildAuthLabels(language);
   const remembered = readRememberedAuth();
@@ -29,8 +29,14 @@ export function LoginPage() {
   const [rememberPassword, setRememberPassword] = useState(remembered.rememberPassword);
   const [error, setError] = useState("");
 
-  const handleSubmit = (event: FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
+
     const safeEmail = email.trim();
     const safePassword = password.trim();
 
@@ -49,22 +55,23 @@ export function LoginPage() {
       return;
     }
 
-    if (mode === "register") {
-      register({
+    setIsSubmitting(true);
+    const success =
+      mode === "register"
+        ? await register({
         email: safeEmail,
         name: "Wander User",
         password: safePassword,
-      });
-    } else {
-      const isLoggedIn = login({
+          })
+        : await login({
         email: safeEmail,
         password: safePassword,
-      });
+          });
 
-      if (!isLoggedIn) {
-        setError(labels.loginFailed);
-        return;
-      }
+    setIsSubmitting(false);
+    if (!success) {
+      setError(mode === "register" ? labels.registerFailed : labels.loginFailed);
+      return;
     }
 
     writeRememberedAuth({
@@ -74,7 +81,7 @@ export function LoginPage() {
       rememberPassword,
     });
     setError("");
-    navigate(mode === "register" || !userProfile.hasCompletedOnboarding ? "/onboarding" : "/", {
+    navigate(mode === "register" ? "/onboarding" : "/", {
       replace: true,
     });
   };
@@ -175,7 +182,7 @@ export function LoginPage() {
           {error ? <p className="auth-error">{error}</p> : null}
 
           <button className="primary-button auth-submit" type="submit">
-            {mode === "register" ? labels.create : labels.enter}
+            {isSubmitting ? labels.submitting : mode === "register" ? labels.create : labels.enter}
           </button>
         </form>
       </section>
@@ -234,6 +241,8 @@ function buildAuthLabels(language: "zh" | "en") {
         passwordRule: "密码必须大于 6 位。",
         passwordMismatch: "两次输入的密码不一致。",
         loginFailed: "账号或密码不正确，请检查后再试。",
+        registerFailed: "注册失败，请检查账号是否已经存在。",
+        submitting: "处理中...",
       }
     : {
         title: "Sign in to Wander",
@@ -251,5 +260,7 @@ function buildAuthLabels(language: "zh" | "en") {
         passwordRule: "Password must be longer than 6 characters.",
         passwordMismatch: "The two passwords do not match.",
         loginFailed: "The account or password is incorrect.",
+        registerFailed: "Registration failed. Please check whether the account already exists.",
+        submitting: "Working...",
       };
 }

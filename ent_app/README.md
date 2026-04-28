@@ -80,8 +80,29 @@ Required production env vars:
 - `VITE_AMAP_SECURITY_JSCODE`
 - `WANDER_BASIC_AUTH_USER` optional, recommended for internal testing
 - `WANDER_BASIC_AUTH_PASSWORD` optional, recommended for internal testing
+- `WANDER_USER_DB_PATH=./data/wander-users.json` optional file path for the first user database
 
 If your platform provides `PORT`, `server/index.mjs` will use it automatically.
+
+## User Database
+
+Wander now has backend auth endpoints and a server-side user database:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/session`
+- `PATCH /api/auth/profile`
+- `POST /api/auth/logout`
+
+Passwords are stored as PBKDF2 hashes, not plain text, and the browser receives an HttpOnly session cookie.
+
+The default local database file is:
+
+```text
+data/wander-users.json
+```
+
+This `data/` folder is ignored by Git so user accounts are not committed. For Render, attach a persistent disk and set `WANDER_USER_DB_PATH` to a path on that disk if you need accounts to survive redeploys and instance restarts. For a larger public launch, replace this file-backed store with Postgres/Supabase, keeping the same auth API shape.
 
 ## Deploy To Render
 

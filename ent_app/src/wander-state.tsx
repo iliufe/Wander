@@ -16,6 +16,13 @@ import {
   generatePlansWithApi,
   type LocationDescribeResponse,
 } from "./services/plans-api";
+import {
+  fetchCurrentUser,
+  loginAccount,
+  logoutAccount,
+  registerAccount,
+  updateAccountProfile,
+} from "./services/auth-api";
 import { formatLocalizedGenerationLabel } from "./wander-copy";
 import type {
   AppClusterId,
@@ -65,10 +72,10 @@ interface WanderContextValue {
   scenario: ScenarioState;
   setScenario: (updater: ScenarioState | ((current: ScenarioState) => ScenarioState)) => void;
   userProfile: UserProfile;
-  login: (payload: { email: string; name?: string; password: string }) => boolean;
-  register: (payload: { email: string; name: string; password: string }) => void;
+  login: (payload: { email: string; name?: string; password: string }) => Promise<boolean>;
+  register: (payload: { email: string; name: string; password: string }) => Promise<boolean>;
   logout: () => void;
-  updateUserProfile: (profile: Partial<Omit<UserProfile, "isAuthenticated">>) => void;
+  updateUserProfile: (profile: Partial<Omit<UserProfile, "isAuthenticated" | "password">>) => Promise<void>;
   savedAddresses: SavedAddress[];
   updateSavedAddress: (id: SavedAddressId, address: Partial<Omit<SavedAddress, "id">>) => void;
   setSavedAddressFromCurrentLocation: (id: SavedAddressId) => void;
@@ -247,6 +254,27 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       })
     );
   }, [activeTimeBudgetMinutes, inputPrompt, location, savedAddresses, scenario, timeSelection, ugcReads, userProfile]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCurrentUser()
+      .then((user) => {
+        if (cancelled) {
+          return;
+        }
+
+        setUserProfile(user ? normalizeRemoteUser(user) : createUserProfile(null));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUserProfile(createUserProfile(null));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setSelectedRouteId((current) =>
@@ -668,45 +696,40 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       scenario,
       setScenario,
       userProfile,
-      login: ({ email, name, password }) => {
-        if (userProfile.email && userProfile.email !== email) {
+      login: async ({ email, password }) => {
+        try {
+          const user = await loginAccount({ email, password });
+          setUserProfile(normalizeRemoteUser(user));
+          return true;
+        } catch {
           return false;
         }
-
-        if (userProfile.password && userProfile.password !== password) {
-          return false;
-        }
-
-        setUserProfile((current) => ({
-          ...current,
-          isAuthenticated: true,
-          email,
-          password,
-          name: name?.trim() || current.name || email.split("@")[0] || "Wander User",
-        }));
-        return true;
       },
-      register: ({ email, name, password }) => {
-        setUserProfile((current) => ({
-          ...current,
-          isAuthenticated: true,
-          hasCompletedOnboarding: false,
-          email,
-          password,
-          name: name.trim() || "Wander User",
-        }));
+      register: async ({ email, name, password }) => {
+        try {
+          const user = await registerAccount({ email, name, password });
+          setUserProfile(normalizeRemoteUser(user));
+          return true;
+        } catch {
+          return false;
+        }
       },
       logout: () => {
-        setUserProfile((current) => ({
-          ...current,
-          isAuthenticated: false,
-        }));
+        logoutAccount();
+        setUserProfile(createUserProfile(null));
       },
-      updateUserProfile: (profile) => {
+      updateUserProfile: async (profile) => {
         setUserProfile((current) => ({
           ...current,
           ...profile,
         }));
+
+        try {
+          const user = await updateAccountProfile(profile);
+          setUserProfile(normalizeRemoteUser(user));
+        } catch {
+          // Keep the optimistic local update so the UI remains responsive.
+        }
       },
       savedAddresses,
       updateSavedAddress: (id, address) => {
@@ -874,14 +897,23 @@ function hasGeolocationSupport() {
 
 function createUserProfile(storedProfile?: UserProfile | null): UserProfile {
   return {
-    isAuthenticated: storedProfile?.isAuthenticated ?? false,
+    isAuthenticated: false,
     hasCompletedOnboarding: storedProfile?.hasCompletedOnboarding ?? false,
     name: storedProfile?.name || "Wander User",
     email: storedProfile?.email || "",
-    password: storedProfile?.password || "",
+    password: "",
     gender: storedProfile?.gender || "private",
     profession: storedProfile?.profession || "student",
     avatarDataUrl: storedProfile?.avatarDataUrl || null,
+  };
+}
+
+function normalizeRemoteUser(user: UserProfile): UserProfile {
+  return {
+    ...createUserProfile(user),
+    ...user,
+    isAuthenticated: true,
+    password: "",
   };
 }
 
