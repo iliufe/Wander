@@ -18,6 +18,7 @@ export function RoutesPage() {
   const { language } = useLanguage();
   const copy = useCopy();
   const labels = buildRoutesLabels(language);
+  const hasOverBudgetRoute = routes.some((route) => route.totalMinutes > parsed.timeMinutes);
 
   return (
     <>
@@ -40,6 +41,7 @@ export function RoutesPage() {
               <small>{labels.timeBudget}</small>
               <b>{parsed.timeLabel}</b>
             </div>
+            {hasOverBudgetRoute ? <p>{labels.overBudget}</p> : null}
           </aside>
         </div>
       </section>
@@ -106,11 +108,13 @@ function buildRoutesLabels(language: "zh" | "en") {
         request: "用户需求",
         emptyRequest: "暂无需求",
         timeBudget: "时间预算",
+        overBudget: "为满足需求，规划路线时长可能会超出预算时间。",
       }
     : {
         summaryAria: "Current route request summary",
         request: "Request",
         emptyRequest: "No request yet",
         timeBudget: "Time budget",
+        overBudget: "To satisfy your request, the planned route may exceed your time budget.",
       };
 }

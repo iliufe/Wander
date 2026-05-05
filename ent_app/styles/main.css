@@ -2706,6 +2706,16 @@ body {
   font-size: 1.05rem;
 }
 
+.route-request-summary p {
+  margin: -2px 0 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 247, 240, 0.12);
+  color: rgba(255, 247, 240, 0.86);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
 .route-stack {
   display: grid;
   gap: 24px;
