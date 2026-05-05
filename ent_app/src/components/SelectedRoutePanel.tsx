@@ -8,7 +8,7 @@ import {
 } from "../display-text";
 import { getLocalizedCategoryLabel, useCopy, useLanguage } from "../i18n";
 import { searchStartPlacesWithApi, type StartPlaceSearchResult } from "../services/plans-api";
-import type { RouteMode, RouteStop } from "../types";
+import type { RouteMode } from "../types";
 import { useWander } from "../wander-state";
 
 const RouteMapPreview = lazy(async () => {
@@ -102,7 +102,6 @@ export function SelectedRoutePanel() {
     );
   }
 
-  const scheduleBlocks = buildScheduleBlocks(selectedRoute.stops);
   const startLabel = language === "zh" ? parsed.startPoint : "Start";
 
   return (
@@ -168,7 +167,7 @@ export function SelectedRoutePanel() {
                   <div className="map-node-dot"></div>
                   <div>
                     <strong>{localizeStopName(stop, language, index)}</strong>
-                    <span>{joinDisplayInline([localizeStopAddress(stop, language), scheduleBlocks[index]])}</span>
+                    <span>{localizeStopAddress(stop, language)}</span>
                   </div>
                 </div>
                 {index < selectedRoute.stops.length - 1 ? <div className="map-link"></div> : null}
@@ -253,10 +252,6 @@ export function SelectedRoutePanel() {
                       <small>
                         {joinDisplayInline([localizeStopAddress(stop, language), getLocalizedCategoryLabel(stop.requestedCategory, language)])}
                       </small>
-                    </div>
-                    <div className="timeline-time-block">
-                      <span className="mini-label">{detailCopy.scheduleBlock}</span>
-                      <strong>{scheduleBlocks[index]}</strong>
                     </div>
                   </div>
 
@@ -344,12 +339,10 @@ function buildDetailCopy(language: "zh" | "en") {
     ? {
         openFirstLeg: "打开导航",
         modeSummary: "方式",
-        scheduleBlock: "时间",
       }
     : {
         openFirstLeg: "Open Nav",
         modeSummary: "Mode",
-        scheduleBlock: "Time",
       };
 }
 
@@ -426,22 +419,4 @@ function joinInline(values: Array<string | null | undefined>) {
 function joinDisplayInline(values: Array<string | null | undefined>) {
   void joinInline([]);
   return values.filter(Boolean).join(" · ");
-}
-
-function buildScheduleBlocks(stops: RouteStop[]) {
-  let cursor = 0;
-
-  return stops.map((stop) => {
-    const travelMinutes = stop.travelMinutesFromPrevious ?? 0;
-    const arrival = cursor + travelMinutes;
-    const departure = arrival + stop.duration;
-    cursor = departure;
-    return `${formatClock(arrival)} - ${formatClock(departure)}`;
-  });
-}
-
-function formatClock(totalMinutes: number) {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
