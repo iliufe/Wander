@@ -34,6 +34,7 @@ import type {
   IntentSignals,
   LiveDataState,
   RouteOption,
+  RouteMode,
   SavedAddress,
   SavedAddressId,
   ScenarioState,
@@ -78,6 +79,8 @@ interface WanderContextValue {
   openDataEnabled: boolean;
   timeSelection: TimeSelection;
   setTimeSelection: (value: TimeSelection | ((current: TimeSelection) => TimeSelection)) => void;
+  preferredRouteMode: RouteMode;
+  setPreferredRouteMode: (mode: RouteMode) => void;
   canGenerate: boolean;
   scenario: ScenarioState;
   setScenario: (updater: ScenarioState | ((current: ScenarioState) => ScenarioState)) => void;
@@ -117,6 +120,8 @@ type StoredState = {
   location?: DeviceLocation;
   timeSelection?: TimeSelection;
   activeTimeBudgetMinutes?: number;
+  preferredRouteMode?: RouteMode;
+  activeRouteMode?: RouteMode;
   scenario?: ScenarioState;
   savedAddresses?: SavedAddress[];
   userProfile?: UserProfile;
@@ -181,6 +186,12 @@ export function WanderProvider({ children }: { children: ReactNode }) {
   );
   const [activeTimeBudgetMinutes, setActiveTimeBudgetMinutes] = useState(
     stored?.activeTimeBudgetMinutes ?? parsedDefault.timeMinutes
+  );
+  const [preferredRouteMode, setPreferredRouteMode] = useState<RouteMode>(
+    normalizeStoredRouteMode(stored?.preferredRouteMode)
+  );
+  const [activeRouteMode, setActiveRouteMode] = useState<RouteMode>(
+    normalizeStoredRouteMode(stored?.activeRouteMode || stored?.preferredRouteMode)
   );
   const [scenario, setScenario] = useState<ScenarioState>(
     stored?.scenario || {
@@ -268,6 +279,8 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         location,
         timeSelection,
         activeTimeBudgetMinutes,
+        preferredRouteMode,
+        activeRouteMode,
         scenario,
         savedAddresses,
         userProfile,
@@ -278,7 +291,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         lastGeneratedAt,
       })
     );
-  }, [activeTimeBudgetMinutes, inputPrompt, lastGeneratedAt, location, plannedIntent, plannedRoutes, savedAddresses, scenario, selectedRouteId, timeSelection, ugcReads, userProfile]);
+  }, [activeRouteMode, activeTimeBudgetMinutes, inputPrompt, lastGeneratedAt, location, plannedIntent, plannedRoutes, preferredRouteMode, savedAddresses, scenario, selectedRouteId, timeSelection, ugcReads, userProfile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -347,6 +360,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       startLocation: location,
       timeBudgetMinutes: activeTimeBudgetMinutes,
       language: planningLanguage,
+      routeMode: activeRouteMode,
     });
     const destinationOnly = destinationRoute
       ? isSavedAddressOnlyPrompt(activePrompt, destinationRoute.destination.id)
@@ -397,6 +411,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         longitude: location.longitude,
         locationLabel: location.label,
         timeBudgetMinutes: activeTimeBudgetMinutes,
+        routeMode: activeRouteMode,
         weather: scenario.weather,
         venueStatus: scenario.venue,
       },
@@ -472,6 +487,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
   }, [
     activePrompt,
     activeTimeBudgetMinutes,
+    activeRouteMode,
     generationRunId,
     location.label,
     location.latitude,
@@ -774,6 +790,8 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       openDataEnabled,
       timeSelection,
       setTimeSelection,
+      preferredRouteMode,
+      setPreferredRouteMode,
       canGenerate,
       scenario,
       setScenario,
@@ -916,6 +934,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
         setPlannedIntent(null);
         setPlannedRoutes([]);
         setActiveTimeBudgetMinutes(selectedTimeMinutes);
+        setActiveRouteMode(preferredRouteMode);
         setPlanningLanguage(language);
         setGenerationProgress(8);
         setActivePrompt(inputPrompt.trim() || cityDriftData.defaults.prompt);
@@ -971,6 +990,7 @@ export function WanderProvider({ children }: { children: ReactNode }) {
       locationReady,
       openDataEnabled,
       parsed,
+      preferredRouteMode,
       routeFit,
       routes,
       savedAddresses,
@@ -1006,18 +1026,24 @@ function selectionFromMinutes(totalMinutes: number): TimeSelection {
   };
 }
 
+function normalizeStoredRouteMode(mode: unknown): RouteMode {
+  return mode === "riding" || mode === "driving" || mode === "walking" ? mode : "walking";
+}
+
 function buildSavedAddressRoute({
   prompt,
   savedAddresses,
   startLocation,
   timeBudgetMinutes,
   language,
+  routeMode,
 }: {
   prompt: string;
   savedAddresses: SavedAddress[];
   startLocation: DeviceLocation;
   timeBudgetMinutes: number;
   language: "zh" | "en";
+  routeMode: RouteMode;
 }): { route: RouteOption; destination: SavedAddress } | null {
   if (startLocation.latitude == null || startLocation.longitude == null) {
     return null;
@@ -1040,18 +1066,23 @@ function buildSavedAddressRoute({
   const walkingMinutes = Math.max(1, Math.round(distanceMeters / 75));
   const ridingMinutes = Math.max(1, Math.round(distanceMeters / 220));
   const drivingMinutes = Math.max(3, Math.round(distanceMeters / 450) + 5);
-  const bestMinutes = Math.min(walkingMinutes, ridingMinutes, drivingMinutes);
+  const travelMinutesByMode: Record<RouteMode, number> = {
+    walking: walkingMinutes,
+    riding: ridingMinutes,
+    driving: drivingMinutes,
+  };
+  const selectedTravelMinutes = travelMinutesByMode[routeMode];
+  const bestMinutes = selectedTravelMinutes;
   const visitMinutes = 0;
-  const safeBudget = Math.max(timeBudgetMinutes, bestMinutes);
+  const safeBudget = Math.max(timeBudgetMinutes, selectedTravelMinutes);
   const destinationName = destination.label || buildSavedAddressLabel(destination.id, language);
   const destinationAddress = destination.address || destinationName;
-  const navigationUrl = buildAmapNavigationUrl({
-    start,
-    startName: startLocation.label,
-    end,
-    endName: destinationName,
-    mode: "car",
-  });
+  const navigationUrlsByMode: Record<RouteMode, string> = {
+    walking: buildAmapNavigationUrl({ start, startName: startLocation.label, end, endName: destinationName, mode: "walk" }),
+    riding: buildAmapNavigationUrl({ start, startName: startLocation.label, end, endName: destinationName, mode: "ride" }),
+    driving: buildAmapNavigationUrl({ start, startName: startLocation.label, end, endName: destinationName, mode: "car" }),
+  };
+  const navigationUrl = navigationUrlsByMode[routeMode];
 
   const stop: RouteOption["stops"][number] = {
     id: `saved-${destination.id}`,
@@ -1077,19 +1108,15 @@ function buildSavedAddressRoute({
     sourceLabel: "Saved address",
     distanceFromStartMeters: distanceMeters,
     visitLabel: language === "zh" ? "目的地" : "Destination",
-    travelFromPrevious: buildTravelModeLabel("driving", drivingMinutes, distanceMeters, language),
-    travelMinutesFromPrevious: drivingMinutes,
+    travelFromPrevious: buildTravelModeLabel(routeMode, selectedTravelMinutes, distanceMeters, language),
+    travelMinutesFromPrevious: selectedTravelMinutes,
     travelDistanceMetersFromPrevious: distanceMeters,
     travelModesFromPrevious: [
       buildTravelModeEstimate("walking", walkingMinutes, distanceMeters, start, end, startLocation.label, destinationName, language),
       buildTravelModeEstimate("riding", ridingMinutes, distanceMeters, start, end, startLocation.label, destinationName, language),
       buildTravelModeEstimate("driving", drivingMinutes, distanceMeters, start, end, startLocation.label, destinationName, language),
     ],
-    navigationUrls: {
-      walking: buildAmapNavigationUrl({ start, startName: startLocation.label, end, endName: destinationName, mode: "walk" }),
-      riding: buildAmapNavigationUrl({ start, startName: startLocation.label, end, endName: destinationName, mode: "ride" }),
-      driving: navigationUrl,
-    },
+    navigationUrls: navigationUrlsByMode,
     ugc: {
       author: "Wander",
       verified: language === "zh" ? "用户常用地址" : "User saved address",
@@ -1112,11 +1139,11 @@ function buildSavedAddressRoute({
       subtitle:
         language === "zh"
           ? `预计 ${bestMinutes} 分钟内可到达`
-          : `Estimated arrival in ${bestMinutes} min`,
+          : `Estimated arrival in ${selectedTravelMinutes} min`,
       style: "efficient",
       fitScore: 100,
-      totalMinutes: bestMinutes,
-      bufferMinutes: Math.max(0, safeBudget - bestMinutes),
+      totalMinutes: selectedTravelMinutes,
+      bufferMinutes: Math.max(0, safeBudget - selectedTravelMinutes),
       hitCount: 1,
       stops: [stop],
       adjustments: [],
@@ -1132,8 +1159,8 @@ function buildSavedAddressRoute({
         [end.longitude, end.latitude],
       ],
       routeDistanceMeters: distanceMeters,
-      routeDurationMinutes: bestMinutes,
-      routeMode: "driving",
+      routeDurationMinutes: selectedTravelMinutes,
+      routeMode,
     },
   };
 }

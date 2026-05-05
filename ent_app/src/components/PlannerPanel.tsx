@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { cityDriftData } from "../data";
 import { localizeLocationLabel, localizeSearchPlace } from "../display-text";
-import type { DeviceLocation } from "../types";
+import type { DeviceLocation, RouteMode } from "../types";
 import { useCopy, useLanguage } from "../i18n";
 import { searchStartPlacesWithApi, type StartPlaceSearchResult } from "../services/plans-api";
 import { useWander } from "../wander-state";
@@ -20,6 +20,8 @@ export function PlannerPanel() {
     selectStartPlace,
     timeSelection,
     setTimeSelection,
+    preferredRouteMode,
+    setPreferredRouteMode,
     canGenerate,
     commitPrompt,
     applyQuickPrompt,
@@ -252,6 +254,27 @@ export function PlannerPanel() {
       <section className="planner-controls-panel">
         <TimeWheelPicker value={timeSelection} onChange={setTimeSelection} />
 
+        <div className="travel-mode-card">
+          <div className="travel-mode-head">
+            <strong>{labels.travelModeTitle}</strong>
+            <span>{labels.travelModeHint}</span>
+          </div>
+          <div className="travel-mode-options" role="radiogroup" aria-label={labels.travelModeTitle}>
+            {(["walking", "riding", "driving"] as RouteMode[]).map((mode) => (
+              <button
+                className={`travel-mode-option ${preferredRouteMode === mode ? "is-active" : ""}`}
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={preferredRouteMode === mode}
+                onClick={() => setPreferredRouteMode(mode)}
+              >
+                <strong>{labels.travelModes[mode]}</strong>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {showGenerating ? (
           <div className="planner-loading-card" aria-live="polite">
             <div className="planner-loading-top">
@@ -293,6 +316,13 @@ function buildPlannerLabels(language: "zh" | "en") {
         generating: "正在生成路线",
         generatingShort: "生成中",
         generationFailed: "生成失败，请稍后再试。",
+        travelModeTitle: "出行方式",
+        travelModeHint: "用于计算预计用时",
+        travelModes: {
+          walking: "步行",
+          riding: "骑行",
+          driving: "打车",
+        },
       }
     : {
         startTitle: "Start",
@@ -306,6 +336,13 @@ function buildPlannerLabels(language: "zh" | "en") {
         generating: "Generating routes",
         generatingShort: "Generating",
         generationFailed: "Generation failed. Please try again.",
+        travelModeTitle: "Travel Mode",
+        travelModeHint: "Used for estimated time",
+        travelModes: {
+          walking: "Walk",
+          riding: "Ride",
+          driving: "Taxi",
+        },
       };
 }
 

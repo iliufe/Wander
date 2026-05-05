@@ -534,16 +534,22 @@ const specificFoodCategories = new Set([
   "fast_food",
 ]);
 
+function normalizeRouteMode(value) {
+  return value === "riding" || value === "driving" || value === "walking" ? value : "walking";
+}
+
 export async function generatePlans({
   prompt,
   language,
   coordinates,
   locationLabel,
   timeBudgetMinutes,
+  routeMode = "walking",
   weather,
   venueStatus,
   qwenConfig,
 }) {
+  const preferredRouteMode = normalizeRouteMode(routeMode);
   const amapConfig = getAmapConfig();
   const locationSnapshot = await withTimeout(
     reverseGeocodeWithAmap(coordinates, amapConfig),
@@ -596,6 +602,7 @@ export async function generatePlans({
       searchCache,
       candidateRegistry,
       amapConfig,
+      routeMode: preferredRouteMode,
       routeIndex,
       variantIndex,
     }).catch(() => null);
@@ -871,6 +878,7 @@ async function buildRouteFromBlueprint({
   searchCache,
   candidateRegistry,
   amapConfig,
+  routeMode = "walking",
   routeIndex = 0,
   variantIndex = 0,
 }) {
@@ -957,7 +965,8 @@ async function buildRouteFromBlueprint({
     coordinates,
     locationSnapshot.nearbyPlaceName || locationSnapshot.formattedAddress || "Current start",
     language,
-    amapConfig
+    amapConfig,
+    routeMode
   );
   const requiredRouteCategories = new Set(Array.isArray(intent.categories) ? intent.categories : []);
   while (
@@ -980,7 +989,8 @@ async function buildRouteFromBlueprint({
       coordinates,
       locationSnapshot.nearbyPlaceName || locationSnapshot.formattedAddress || "Current start",
       language,
-      amapConfig
+      amapConfig,
+      routeMode
     );
   }
 
@@ -1006,7 +1016,8 @@ async function buildRouteFromBlueprint({
         coordinates,
         locationSnapshot.nearbyPlaceName || locationSnapshot.formattedAddress || "Current start",
         language,
-        amapConfig
+        amapConfig,
+        routeMode
       );
     }
   }
@@ -1056,7 +1067,7 @@ async function buildRouteFromBlueprint({
     routeGeometry: computed.routeGeometry,
     routeDistanceMeters: computed.totalRouteDistance,
     routeDurationMinutes: computed.totalRouteDuration,
-    routeMode: "walking",
+    routeMode,
   };
 }
 
@@ -1182,7 +1193,8 @@ async function searchWithCache({
   return items;
 }
 
-async function attachRouteLegs(stops, startCoordinates, startLabel, language, amapConfig) {
+async function attachRouteLegs(stops, startCoordinates, startLabel, language, amapConfig, routeMode = "walking") {
+  const preferredRouteMode = normalizeRouteMode(routeMode);
   const routeGeometry = [];
   let totalRouteDistance = 0;
   let totalRouteDuration = 0;
@@ -1228,9 +1240,16 @@ async function attachRouteLegs(stops, startCoordinates, startLabel, language, am
       fromLabel: previousLabel,
       toLabel: stop.name,
     });
+    const selectedLeg =
+      preferredRouteMode === "driving"
+        ? drivingLeg
+        : preferredRouteMode === "riding"
+          ? ridingLeg
+          : walkingLeg;
+    const selectedTravelMode = travelModes.find((mode) => mode.mode === preferredRouteMode) || travelModes[0];
 
-    totalRouteDistance += walkingLeg.distanceMeters;
-    totalRouteDuration += walkingLeg.durationMinutes;
+    totalRouteDistance += selectedLeg.distanceMeters;
+    totalRouteDuration += selectedLeg.durationMinutes;
     routeModeTotals.walking.durationMinutes += walkingLeg.durationMinutes;
     routeModeTotals.walking.distanceMeters += walkingLeg.distanceMeters;
     routeModeTotals.riding.durationMinutes += ridingLeg.durationMinutes;
@@ -1241,9 +1260,9 @@ async function attachRouteLegs(stops, startCoordinates, startLabel, language, am
 
     withLegs.push({
       ...stop,
-      travelFromPrevious: travelModes[0]?.label || buildTravelLabel(walkingLeg.durationMinutes, walkingLeg.distanceMeters, language),
-      travelMinutesFromPrevious: walkingLeg.durationMinutes,
-      travelDistanceMetersFromPrevious: walkingLeg.distanceMeters,
+      travelFromPrevious: selectedTravelMode?.label || buildTravelLabel(selectedLeg.durationMinutes, selectedLeg.distanceMeters, language),
+      travelMinutesFromPrevious: selectedLeg.durationMinutes,
+      travelDistanceMetersFromPrevious: selectedLeg.distanceMeters,
       travelModesFromPrevious: travelModes,
       navigationUrls: Object.fromEntries(
         travelModes
@@ -1269,7 +1288,7 @@ async function attachRouteLegs(stops, startCoordinates, startLabel, language, am
     totalRouteDuration,
     routeGeometry,
     routeModes,
-    navigationUrl: withLegs[0]?.navigationUrls?.walking || null,
+    navigationUrl: withLegs[0]?.navigationUrls?.[preferredRouteMode] || withLegs[0]?.navigationUrls?.walking || null,
     totalMinutes: stopDuration + totalRouteDuration,
   };
 }

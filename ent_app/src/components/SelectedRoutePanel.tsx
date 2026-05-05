@@ -253,6 +253,10 @@ export function SelectedRoutePanel() {
                         {joinDisplayInline([localizeStopAddress(stop, language), getLocalizedCategoryLabel(stop.requestedCategory, language)])}
                       </small>
                     </div>
+                    <div className="timeline-time-block">
+                      <span className="mini-label">{detailCopy.estimatedTime}</span>
+                      <strong>{formatEstimatedStopTime(stop, language)}</strong>
+                    </div>
                   </div>
 
                   <div className="route-edit-actions" aria-label={editCopy.editRoute}>
@@ -339,11 +343,21 @@ function buildDetailCopy(language: "zh" | "en") {
     ? {
         openFirstLeg: "打开导航",
         modeSummary: "方式",
+        estimatedTime: "预计用时",
       }
     : {
         openFirstLeg: "Open Nav",
         modeSummary: "Mode",
+        estimatedTime: "Est. Time",
       };
+}
+
+function formatEstimatedStopTime(
+  stop: { duration: number; travelMinutesFromPrevious?: number },
+  language: "zh" | "en"
+) {
+  const totalMinutes = Math.max(1, Math.round((stop.travelMinutesFromPrevious || 0) + stop.duration));
+  return language === "zh" ? `约 ${totalMinutes} 分钟` : `About ${totalMinutes} min`;
 }
 
 /*

@@ -184,6 +184,7 @@ const server = createServer(async (request, response) => {
       const language = body.language === "en" ? "en" : "zh";
       const coordinates = parseCoordinates(body);
       const timeBudgetMinutes = clampNumber(body.timeBudgetMinutes, 30, 12 * 60, 120);
+      const routeMode = normalizeRouteMode(body.routeMode);
       const weather = body.weather === "rain" ? "rain" : "clear";
       const venueStatus = body.venueStatus === "closed" ? "closed" : "live";
       const locationLabel =
@@ -209,6 +210,7 @@ const server = createServer(async (request, response) => {
         coordinates,
         locationLabel,
         timeBudgetMinutes,
+        routeMode,
         weather,
         venueStatus,
         qwenConfig: {
@@ -356,6 +358,10 @@ function clampNumber(value, minimum, maximum, fallback) {
   }
 
   return Math.max(minimum, Math.min(maximum, Math.round(parsed)));
+}
+
+function normalizeRouteMode(value) {
+  return value === "riding" || value === "driving" || value === "walking" ? value : "walking";
 }
 
 function toNumber(value) {

@@ -3,6 +3,7 @@ import type {
   IntentSignals,
   LiveDataState,
   RouteOption,
+  RouteMode,
   ScenarioState,
 } from "../types";
 
@@ -35,6 +36,7 @@ export interface GeneratePlansContext {
   longitude: number;
   locationLabel: string;
   timeBudgetMinutes: number;
+  routeMode: RouteMode;
   weather: ScenarioState["weather"];
   venueStatus: ScenarioState["venue"];
 }
