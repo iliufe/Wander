@@ -14,7 +14,12 @@ export function CurrentLocationMap({ location, onSelectPoint }: CurrentLocationM
   const markerTitle = localizeLocationLabel(location, language);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<{ destroy: () => void } | null>(null);
+  const onSelectPointRef = useRef(onSelectPoint);
   const [note, setNote] = useState("");
+
+  useEffect(() => {
+    onSelectPointRef.current = onSelectPoint;
+  }, [onSelectPoint]);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -69,7 +74,7 @@ export function CurrentLocationMap({ location, onSelectPoint }: CurrentLocationM
           map.add(marker);
         }
 
-        if (onSelectPoint) {
+        if (onSelectPointRef.current) {
           (map as unknown as { on: (eventName: string, handler: (event: any) => void) => void }).on(
             "click",
             (event) => {
@@ -80,7 +85,7 @@ export function CurrentLocationMap({ location, onSelectPoint }: CurrentLocationM
                 typeof lngLat?.getLat === "function" ? lngLat.getLat() : Number(lngLat?.lat);
 
               if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-                onSelectPoint(latitude, longitude);
+                onSelectPointRef.current?.(latitude, longitude);
               }
             }
           );
@@ -98,7 +103,7 @@ export function CurrentLocationMap({ location, onSelectPoint }: CurrentLocationM
     return () => {
       cancelled = true;
     };
-  }, [language, location.accuracyMeters, location.latitude, location.longitude, markerTitle, onSelectPoint]);
+  }, [language, location.accuracyMeters, location.latitude, location.longitude, markerTitle]);
 
   useEffect(() => {
     return () => {

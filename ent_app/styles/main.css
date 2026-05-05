@@ -2655,6 +2655,57 @@ body {
   margin-top: 20px;
 }
 
+.page-hero-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.route-request-summary {
+  display: grid;
+  align-content: space-between;
+  gap: 18px;
+  padding: 20px;
+  border-radius: 26px;
+  background:
+    linear-gradient(135deg, rgba(16, 23, 33, 0.92), rgba(29, 54, 71, 0.9)),
+    radial-gradient(circle at top right, rgba(238, 172, 117, 0.22), transparent 35%);
+  color: #fff7f0;
+  box-shadow: 0 22px 44px rgba(16, 23, 33, 0.16);
+}
+
+.route-request-summary span,
+.route-request-summary small {
+  color: rgba(255, 247, 240, 0.68);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.route-request-summary strong {
+  display: -webkit-box;
+  margin-top: 8px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-height: 1.5;
+}
+
+.route-request-summary div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 247, 240, 0.18);
+}
+
+.route-request-summary b {
+  font-size: 1.05rem;
+}
+
 .route-stack {
   display: grid;
   gap: 24px;
@@ -2777,6 +2828,10 @@ body {
 
   .route-options-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .page-hero-content {
+    grid-template-columns: 1fr;
   }
 }
 
