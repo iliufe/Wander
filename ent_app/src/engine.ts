@@ -120,7 +120,9 @@ const categoryKeywords: Record<CategoryId, string[]> = {
   cafe: ["咖啡", "coffee", "cafe", "latte", "espresso", "tea"],
   bookstore: ["书店", "看书", "阅读", "书吧", "bookstore", "bookshop", "books", "reading", "read"],
   gallery: ["看展", "展览", "美术馆", "博物馆", "gallery", "museum", "exhibition", "art"],
-  dessert: ["甜品", "甜点", "蛋糕", "面包", "dessert", "cake", "bakery", "pastry", "ice cream", "sweet"],
+  dessert: ["甜品", "甜点", "蛋糕", "冰淇淋", "dessert", "cake", "ice cream", "sweet"],
+  bakery: ["面包", "面包店", "烘焙", "贝果", "吐司", "bakery", "bread", "pastry", "bagel"],
+  noodles: ["面馆", "面条", "拉面", "拌面", "汤面", "牛肉面", "米粉", "河粉", "noodle", "noodles"],
   riverside: ["江边", "河边", "湖边", "滨江", "滨水", "waterfront", "riverside", "river", "canal", "lake"],
   market: ["市集", "菜场", "market", "marketplace", "bazaar", "farmers market"],
 };

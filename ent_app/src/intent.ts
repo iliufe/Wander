@@ -30,7 +30,9 @@ const categorySearchAliases: Record<CategoryId, string[]> = {
   cafe: ["咖啡", "coffee", "cafe"],
   bookstore: ["书店", "bookstore", "books", "reading"],
   gallery: ["展览", "看展", "gallery", "museum", "exhibition"],
-  dessert: ["甜品", "蛋糕", "dessert", "cake", "bakery"],
+  dessert: ["甜品", "蛋糕", "dessert", "cake"],
+  bakery: ["面包", "面包店", "烘焙", "贝果", "吐司", "bakery", "bread", "pastry", "bagel"],
+  noodles: ["面馆", "面条", "拉面", "拌面", "汤面", "牛肉面", "米粉", "河粉", "noodle", "noodles"],
   riverside: ["江边", "河边", "湖边", "riverside", "waterfront"],
   market: ["市集", "市场", "market", "marketplace"],
 };
@@ -85,9 +87,21 @@ const intentDefinitions: IntentDefinition[] = [
     requiredCategories: ["gallery"],
   },
   {
-    matchers: ["甜品", "甜点", "dessert", "cake", "bakery"],
+    matchers: ["面包", "面包店", "烘焙", "贝果", "吐司", "bakery", "bread", "pastry", "bagel"],
+    categories: ["bakery"],
+    searchTerms: ["面包", "面包店", "烘焙", "bakery", "bread", "pastry"],
+    requiredCategories: ["bakery"],
+  },
+  {
+    matchers: ["面馆", "面条", "拉面", "拌面", "汤面", "牛肉面", "米粉", "河粉", "noodle", "noodles"],
+    categories: ["noodles", "food"],
+    searchTerms: ["面馆", "面条", "拉面", "米粉", "noodle", "noodles"],
+    requiredCategories: ["noodles", "food"],
+  },
+  {
+    matchers: ["甜品", "甜点", "蛋糕", "冰淇淋", "dessert", "cake", "ice cream"],
     categories: ["dessert"],
-    searchTerms: ["甜品", "dessert", "cake", "bakery"],
+    searchTerms: ["甜品", "甜点", "蛋糕", "dessert", "cake"],
     requiredCategories: ["dessert"],
   },
   {
@@ -253,8 +267,16 @@ function expandSearchTerm(term: string) {
     return ["展览", "gallery", "museum", "exhibition", "看展"];
   }
 
-  if (["甜品", "dessert", "cake", "bakery"].includes(normalizedTerm)) {
-    return ["甜品", "dessert", "cake", "bakery", "面包"];
+  if (["面包", "面包店", "烘焙", "bakery", "bread", "pastry"].includes(normalizedTerm)) {
+    return ["面包", "面包店", "烘焙", "bakery", "bread", "pastry"];
+  }
+
+  if (["面馆", "面条", "拉面", "米粉", "noodle", "noodles"].includes(normalizedTerm)) {
+    return ["面馆", "面条", "拉面", "米粉", "noodle", "noodles"];
+  }
+
+  if (["甜品", "甜点", "蛋糕", "dessert", "cake"].includes(normalizedTerm)) {
+    return ["甜品", "甜点", "蛋糕", "dessert", "cake"];
   }
 
   if (["超市", "便利店", "grocery", "supermarket"].includes(normalizedTerm)) {
@@ -308,7 +330,12 @@ function mergeStopSignals(
 
 function compressIntentCategories(categories: CategoryId[]) {
   return categories.filter((category) => {
-    if (category === "food" && categories.includes("sichuan")) {
+    if (
+      category === "food" &&
+      categories.some((item) =>
+        ["sichuan", "hotpot", "bbq", "noodles", "bakery", "dessert"].includes(item)
+      )
+    ) {
       return false;
     }
 

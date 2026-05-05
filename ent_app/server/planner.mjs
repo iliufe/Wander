@@ -24,6 +24,39 @@ const supportedCategories = [
 
 const routeStyles = ["balanced", "efficient", "scenic"];
 
+const shortKeywordRules = [
+  {
+    category: "noodles",
+    terms: ["面", "粉"],
+    allow: /(吃面|面馆|面条|拉面|拌面|汤面|炒面|牛肉面|重庆小面|米粉|粉面|河粉|螺蛳粉|noodle)/i,
+    block: /(面包|面包店|烘焙|贝果|吐司|三明治|蛋糕|面试|见面|方面|对面|页面|面膜|面霜|前面|后面|里面|外面|上面|下面|粉色|粉底|粉饼|粉丝)/i,
+  },
+  {
+    category: "bookstore",
+    terms: ["书"],
+    allow: /(书店|书吧|看书|买书|阅读|图书馆|bookstore|bookshop|reading)/i,
+    block: /(书包|说明书|秘书|证书|教科书以外)/i,
+  },
+  {
+    category: "cinema",
+    terms: ["影"],
+    allow: /(电影|影院|影城|看电影|movie|cinema|film)/i,
+    block: /(影响|摄影|倒影|合影|影子)/i,
+  },
+  {
+    category: "gallery",
+    terms: ["展"],
+    allow: /(看展|展览|展馆|美术馆|博物馆|gallery|museum|exhibition)/i,
+    block: /(发展|展开|展示一下|拓展)/i,
+  },
+  {
+    category: "bar",
+    terms: ["酒"],
+    allow: /(酒吧|喝酒|小酒馆|清吧|bar|pub|cocktail)/i,
+    block: /(酒楼|酒家|料酒|酒店|酒席)/i,
+  },
+];
+
 const categoryFallbackTerms = {
   food: ["餐厅", "restaurant", "meal"],
   sichuan: ["火锅", "hotpot", "川菜"],
@@ -2455,13 +2488,10 @@ function extractHeuristicIntent(prompt, timeBudgetMinutes = 120) {
     };
   }
 
-  const hits = Object.entries(heuristicCategoryKeywords)
+  const rawHits = Object.entries(heuristicCategoryKeywords)
     .map(([category, keywords]) => {
       const matches = keywords
-        .map((keyword) => ({
-          keyword,
-          index: source.indexOf(keyword.toLowerCase()),
-        }))
+        .flatMap((keyword) => findKeywordMatches(source, keyword, category))
         .filter((item) => item.index >= 0);
 
       if (!matches.length) {
@@ -2472,17 +2502,50 @@ function extractHeuristicIntent(prompt, timeBudgetMinutes = 120) {
         category,
         index: Math.min(...matches.map((item) => item.index)),
         keywords: matches.map((item) => item.keyword),
+        matches,
       };
     })
     .filter(Boolean)
-    .sort((left, right) => left.index - right.index);
+    .flatMap((hit) => hit.matches);
 
-  let categories = hits.map((item) => item.category);
+  const hits = pruneContainedKeywordMatches(rawHits)
+    .sort((left, right) => left.index - right.index || right.keyword.length - left.keyword.length);
+
+  const hitByCategory = new Map();
+  hits.forEach((hit) => {
+    const current = hitByCategory.get(hit.category);
+    if (!current) {
+      hitByCategory.set(hit.category, {
+        category: hit.category,
+        index: hit.index,
+        keywords: [hit.keyword],
+        matches: [hit],
+      });
+      return;
+    }
+
+    current.index = Math.min(current.index, hit.index);
+    current.keywords = dedupe([...current.keywords, hit.keyword]);
+    current.matches.push(hit);
+  });
+
+  const categoryHits = [...hitByCategory.values()].sort((left, right) => left.index - right.index);
+
+  let categories = categoryHits.map((item) => item.category);
   if (categories.includes("hotpot")) {
     categories = categories.filter((category) => category !== "food" && category !== "sichuan");
   }
   if (categories.some((category) => specificFoodCategories.has(category))) {
     categories = categories.filter((category) => category !== "food");
+  }
+  if (categories.some((category) => ["bakery", "dessert", "tea"].includes(category))) {
+    const foodHit = categoryHits.find((item) => item.category === "food");
+    const hasStrongMealKeyword = (foodHit?.keywords || []).some((keyword) =>
+      /吃饭|晚饭|午饭|餐厅|饭店|正餐|meal|restaurant|dinner|lunch|food/i.test(keyword)
+    );
+    if (!hasStrongMealKeyword) {
+      categories = categories.filter((category) => category !== "food");
+    }
   }
   if (categories.includes("sichuan")) {
     categories = categories.filter((category) => category !== "food");
@@ -2499,8 +2562,9 @@ function extractHeuristicIntent(prompt, timeBudgetMinutes = 120) {
 
   const requiredTermsByCategory = {};
   categories.forEach((category) => {
+    const categoryHit = categoryHits.find((item) => item.category === category);
     requiredTermsByCategory[category] = dedupe([
-      ...((hits.find((item) => item.category === category)?.keywords || []).slice(0, 3)),
+      ...((categoryHit?.keywords || []).slice(0, 3)),
       ...(categoryRequiredFallback[category] || []),
     ]).slice(0, 6);
   });
@@ -2511,7 +2575,7 @@ function extractHeuristicIntent(prompt, timeBudgetMinutes = 120) {
       label: category,
       durationMinutes: defaultDurationForCategory(category),
       searchTerms: dedupe([
-        ...((hits.find((item) => item.category === category)?.keywords || []).slice(0, 4)),
+        ...((categoryHits.find((item) => item.category === category)?.keywords || []).slice(0, 4)),
         ...(categoryFallbackTerms[category] || []),
       ]).slice(0, 6),
       requiredTerms: requiredTermsByCategory[category] || [],
@@ -2527,6 +2591,71 @@ function extractHeuristicIntent(prompt, timeBudgetMinutes = 120) {
     requiredTermsByCategory,
     stopSignals,
   };
+}
+
+function findKeywordMatches(source, keyword, category) {
+  const normalizedKeyword = normalizeLine(keyword).toLowerCase();
+  if (!normalizedKeyword) {
+    return [];
+  }
+
+  const matches = [];
+  let searchFrom = 0;
+  while (searchFrom < source.length) {
+    const index = source.indexOf(normalizedKeyword, searchFrom);
+    if (index < 0) {
+      break;
+    }
+
+    if (isAllowedKeywordOccurrence(source, normalizedKeyword, category, index)) {
+      matches.push({
+        category,
+        keyword,
+        normalizedKeyword,
+        index,
+        end: index + normalizedKeyword.length,
+      });
+    }
+
+    searchFrom = index + Math.max(1, normalizedKeyword.length);
+  }
+
+  return matches;
+}
+
+function isAllowedKeywordOccurrence(source, normalizedKeyword, category, index) {
+  const rule = shortKeywordRules.find(
+    (item) => item.category === category && item.terms.includes(normalizedKeyword)
+  );
+
+  if (!rule) {
+    return true;
+  }
+
+  const windowText = source.slice(Math.max(0, index - 8), index + normalizedKeyword.length + 8);
+
+  if (rule.block.test(windowText)) {
+    return false;
+  }
+
+  return rule.allow.test(windowText);
+}
+
+function pruneContainedKeywordMatches(matches) {
+  return matches.filter((match) => {
+    if (match.normalizedKeyword.length > 1) {
+      return true;
+    }
+
+    return !matches.some(
+      (other) =>
+        other !== match &&
+        other.category !== match.category &&
+        other.normalizedKeyword.length > match.normalizedKeyword.length &&
+        other.index <= match.index &&
+        other.end >= match.end
+    );
+  });
 }
 
 function defaultDurationForCategory(category) {
